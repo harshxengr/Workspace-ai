@@ -1,0 +1,16 @@
+{
+    "name": "@workspace/api",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun --watch src/index.ts",
+        "build": "bun build src/index.ts --outdir dist --target bun",
+        "start": "bun dist/index.js"
+    },
+    "dependencies": {
+        "@types/express": "^5.0.6",
+        "@workspace/db": "workspace:*",
+        "dotenv": "^18.0.5",
+        "express": "^5.2.1"
+    }
+}
