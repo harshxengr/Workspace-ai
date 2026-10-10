@@ -7,6 +7,7 @@ import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
 import workspaceRouter from "./routes/workspaces";
 import memberRouter from "./routes/members";
+import documentRouter from "./routes/documents";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -61,6 +62,7 @@ app.get("/api/me", async (req, res) => {
 
 app.use("/api/workspaces", workspaceRouter);
 app.use("/api/workspaces", memberRouter);
+app.use("/api", documentRouter);
 
 app.listen(PORT, () => {
   console.log(`API running on http://localhost:${PORT}`);
