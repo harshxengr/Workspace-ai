@@ -43,13 +43,91 @@ type DocumentResponse = {
   document: {
     id: string;
     title: string;
+    content: JSONContent | null;
+    updatedAt: string;
   };
 };
+
+const PERSISTENCE_ACK_TYPE = "workspace-ai:document-persisted";
+
+type PersistenceAcknowledgement = {
+  type: typeof PERSISTENCE_ACK_TYPE;
+  contentHash: string;
+  savedAt: string;
+};
+
+type PersistenceStatus =
+  | "idle"
+  | "checking"
+  | "saving"
+  | "saved"
+  | "delayed"
+  | "unknown";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "An unexpected error occurred.";
+}
+
+function normalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeJson);
+  }
+
+  if (value !== null && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+
+    return Object.fromEntries(
+      Object.keys(object)
+        .sort()
+        .map((key) => [key, normalizeJson(object[key])]),
+    );
+  }
+
+  return value;
+}
+
+async function hashJsonContent(value: unknown): Promise<string> {
+  const serialized = JSON.stringify(normalizeJson(value)) ?? "null";
+  const encoded = new TextEncoder().encode(serialized);
+  const digest = await window.crypto.subtle.digest("SHA-256", encoded);
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function parsePersistenceAcknowledgement(
+  payload: string,
+): PersistenceAcknowledgement | null {
+  try {
+    const parsed: unknown = JSON.parse(payload);
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return null;
+    }
+
+    const message = parsed as Record<string, unknown>;
+
+    if (
+      message.type !== PERSISTENCE_ACK_TYPE ||
+      typeof message.contentHash !== "string" ||
+      typeof message.savedAt !== "string" ||
+      Number.isNaN(Date.parse(message.savedAt))
+    ) {
+      return null;
+    }
+
+    return {
+      type: PERSISTENCE_ACK_TYPE,
+      contentHash: message.contentHash,
+      savedAt: message.savedAt,
+    };
+  } catch {
+    // Ignore malformed or unrelated stateless messages.
+    return null;
+  }
 }
 
 export default function Editor({ documentId }: EditorProps) {
@@ -60,6 +138,8 @@ export default function Editor({ documentId }: EditorProps) {
     useState<ConnectionStatus>("connecting");
   const [connectionError, setConnectionError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
+  const [persistenceAcknowledgement, setPersistenceAcknowledgement] =
+    useState<PersistenceAcknowledgement | null>(null);
 
   const authorizationPath =
     `/api/collaboration/documents/${documentId}/token`;
@@ -74,6 +154,7 @@ export default function Editor({ documentId }: EditorProps) {
     setHasSynced(false);
     setConnectionStatus("connecting");
     setConnectionError("");
+    setPersistenceAcknowledgement(null);
 
     async function initializeCollaboration() {
       try {
@@ -130,6 +211,19 @@ export default function Editor({ documentId }: EditorProps) {
           onSynced: () => {
             if (!cancelled) {
               setHasSynced(true);
+            }
+          },
+
+          onStateless: ({ payload }) => {
+            if (cancelled) {
+              return;
+            }
+
+            const acknowledgement =
+              parsePersistenceAcknowledgement(payload);
+
+            if (acknowledgement) {
+              setPersistenceAcknowledgement(acknowledgement);
             }
           },
 
@@ -227,7 +321,7 @@ export default function Editor({ documentId }: EditorProps) {
       <div className="rounded-lg border p-6">
         <p role="status" aria-live="polite">
           {connectionStatus === "disconnected"
-            ? "The collaboration server is disconnected."
+            ? "The collaboration server is disconnected. Reconnecting..."
             : "Synchronizing document content..."}
         </p>
 
@@ -248,6 +342,7 @@ export default function Editor({ documentId }: EditorProps) {
       documentId={documentId}
       session={session}
       connectionStatus={connectionStatus}
+      persistenceAcknowledgement={persistenceAcknowledgement}
     />
   );
 }
@@ -256,12 +351,14 @@ type CollaborativeDocumentEditorProps = {
   documentId: string;
   session: CollaborationSession;
   connectionStatus: ConnectionStatus;
+  persistenceAcknowledgement: PersistenceAcknowledgement | null;
 };
 
 function CollaborativeDocumentEditor({
   documentId,
   session,
   connectionStatus,
+  persistenceAcknowledgement,
 }: CollaborativeDocumentEditorProps) {
   const [title, setTitle] = useState("");
   const [titleLoading, setTitleLoading] = useState(true);
@@ -269,8 +366,13 @@ function CollaborativeDocumentEditor({
   const [status, setStatus] = useState("Live collaboration connected");
   const [error, setError] = useState("");
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
+  const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] =
+    useState<PersistenceAcknowledgement | null>(null);
+  const [persistenceStatus, setPersistenceStatus] =
+    useState<PersistenceStatus>("checking");
 
   const savedTitleRef = useRef("");
+  const documentRevisionRef = useRef(0);
 
   const editor = useEditor(
     {
@@ -307,6 +409,8 @@ function CollaborativeDocumentEditor({
     [documentId, session.provider],
   );
 
+  // Fetching the latest database content also provides a starting point
+  // after a reconnect, even if a prior WebSocket acknowledgement was missed.
   useEffect(() => {
     let cancelled = false;
 
@@ -325,11 +429,30 @@ function CollaborativeDocumentEditor({
 
         savedTitleRef.current = result.document.title;
         setTitle(result.document.title);
+
+        if (result.document.content !== null) {
+          const contentHash = await hashJsonContent(
+            result.document.content,
+          );
+
+          if (cancelled) {
+            return;
+          }
+
+          setLoadedPersistenceSnapshot({
+            type: PERSISTENCE_ACK_TYPE,
+            contentHash,
+            savedAt: result.document.updatedAt,
+          });
+        } else {
+          setPersistenceStatus("unknown");
+        }
       } catch (error) {
         if (!cancelled) {
           setError(
             `Could not load document title: ${getErrorMessage(error)}`,
           );
+          setPersistenceStatus("unknown");
         }
       } finally {
         if (!cancelled) {
@@ -344,6 +467,98 @@ function CollaborativeDocumentEditor({
       cancelled = true;
     };
   }, [documentId]);
+
+  // Acknowledge a save only if the current Tiptap JSON matches a content
+  // snapshot that the server confirms was written to PostgreSQL.
+  const persistenceSnapshot =
+    !loadedPersistenceSnapshot
+      ? persistenceAcknowledgement
+      : !persistenceAcknowledgement
+        ? loadedPersistenceSnapshot
+        : Date.parse(persistenceAcknowledgement.savedAt) >=
+          Date.parse(loadedPersistenceSnapshot.savedAt)
+          ? persistenceAcknowledgement
+          : loadedPersistenceSnapshot;
+
+
+
+useEffect(() => {
+  if (!editor || !persistenceSnapshot) {
+    return;
+  }
+
+  let cancelled = false;
+  const revisionAtStart = documentRevisionRef.current;
+
+  async function verifyPersistedContent(
+    activeEditor: NonNullable<typeof editor>,
+    confirmedSnapshot: PersistenceAcknowledgement,
+  ): Promise<void> {
+    try {
+      const currentHash = await hashJsonContent(
+        activeEditor.getJSON(),
+      );
+
+      if (
+        cancelled ||
+        revisionAtStart !== documentRevisionRef.current
+      ) {
+        return;
+      }
+
+      if (currentHash === confirmedSnapshot.contentHash) {
+        setPersistenceStatus("saved");
+      } else {
+        setPersistenceStatus("saving");
+      }
+    } catch {
+      if (
+        !cancelled &&
+        revisionAtStart === documentRevisionRef.current
+      ) {
+        setPersistenceStatus("unknown");
+      }
+    }
+  }
+
+  setPersistenceStatus("checking");
+  void verifyPersistedContent(editor, persistenceSnapshot);
+
+  return () => {
+    cancelled = true;
+  };
+}, [editor, persistenceSnapshot]);
+
+
+
+  useEffect(() => {
+    const handleDocumentUpdate = () => {
+      documentRevisionRef.current += 1;
+      setPersistenceStatus("saving");
+    };
+
+    session.document.on("update", handleDocumentUpdate);
+
+    return () => {
+      session.document.off("update", handleDocumentUpdate);
+    };
+  }, [session.document]);
+
+  useEffect(() => {
+    if (persistenceStatus !== "saving") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setPersistenceStatus((current) =>
+        current === "saving" ? "delayed" : current,
+      );
+    }, 10_000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [persistenceStatus]);
 
   useEffect(() => {
     editor?.setEditable(
@@ -459,7 +674,6 @@ function CollaborativeDocumentEditor({
     setError("");
     setStatus("Preparing to restore version...");
 
-    // Flush locally buffered changes before requesting restoration.
     session.provider.flushPendingUpdates();
 
     return true;
@@ -470,9 +684,8 @@ function CollaborativeDocumentEditor({
   }
 
   function handleRestoredContent() {
-    // The backend has restored the active Yjs document and persisted it.
-    // Do not call editor.commands.setContent() here: that would apply
-    // the same restoration as a second client-side mutation.
+    // The backend updates and persists the active Yjs document.
+    // Applying setContent here would duplicate the restoration.
     setStatus("Version restored and synchronizing collaborators");
     setHistoryRefreshToken((current) => current + 1);
   }
@@ -490,24 +703,60 @@ function CollaborativeDocumentEditor({
     connectionStatus === "connected" &&
     !busy;
 
+  let persistenceLabel: string;
+
+  switch (persistenceStatus) {
+    case "saved":
+      persistenceLabel = persistenceSnapshot
+        ? `Saved to database at ${new Date(
+          persistenceSnapshot.savedAt,
+        ).toLocaleTimeString()}`
+        : "Saved to database";
+      break;
+    case "saving":
+      persistenceLabel = "Saving changes...";
+      break;
+    case "delayed":
+      persistenceLabel = "Save confirmation is taking longer than expected";
+      break;
+    case "checking":
+      persistenceLabel = "Checking saved state...";
+      break;
+    case "unknown":
+      persistenceLabel = "Save status unavailable";
+      break;
+    default:
+      persistenceLabel = "Autosave ready";
+  }
+
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={`inline-block h-2.5 w-2.5 rounded-full ${connectionStatus === "connected"
-              ? "bg-green-500"
-              : "bg-red-500"
-              }`}
-            aria-hidden="true"
-          />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block h-2.5 w-2.5 rounded-full ${connectionStatus === "connected"
+                  ? "bg-green-500"
+                  : "bg-red-500"
+                }`}
+              aria-hidden="true"
+            />
 
-          <span role="status" className="text-sm">
-            {connectionStatus === "connected"
-              ? "Connected · Live collaboration"
-              : connectionStatus === "connecting"
-                ? "Reconnecting..."
-                : "Offline · Editing disabled"}
+            <span role="status" className="text-sm">
+              {connectionStatus === "connected"
+                ? "Connected · Live collaboration"
+                : connectionStatus === "connecting"
+                  ? "Reconnecting..."
+                  : "Offline · Editing disabled"}
+            </span>
+          </div>
+
+          <span
+            role="status"
+            aria-live="polite"
+            className="text-xs text-muted-foreground"
+          >
+            {persistenceLabel}
           </span>
         </div>
 
