@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -458,26 +459,22 @@ function CollaborativeDocumentEditor({
     setError("");
     setStatus("Preparing to restore version...");
 
+    // Flush locally buffered changes before requesting restoration.
     session.provider.flushPendingUpdates();
 
     return true;
   }
 
-  function applyRestoredContent(content: JSONContent) {
-    if (!editor) {
-      return;
-    }
-
-    // This edit is intentionally applied to the shared Tiptap/Yjs
-    // document so other connected editors receive the restoration.
-    editor.commands.setContent(content);
-
-    setStatus("Version restored and synchronizing");
-    setHistoryRefreshToken((current) => current + 1);
+  function handleRestoreComplete() {
+    setBusy(false);
   }
 
-  function finishRestore() {
-    setBusy(false);
+  function handleRestoredContent() {
+    // The backend has restored the active Yjs document and persisted it.
+    // Do not call editor.commands.setContent() here: that would apply
+    // the same restoration as a second client-side mutation.
+    setStatus("Version restored and synchronizing collaborators");
+    setHistoryRefreshToken((current) => current + 1);
   }
 
   if (!editor) {
@@ -499,8 +496,8 @@ function CollaborativeDocumentEditor({
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={`inline-block h-2.5 w-2.5 rounded-full ${connectionStatus === "connected"
-                ? "bg-green-500"
-                : "bg-red-500"
+              ? "bg-green-500"
+              : "bg-red-500"
               }`}
             aria-hidden="true"
           />
@@ -649,8 +646,8 @@ function CollaborativeDocumentEditor({
           refreshToken={historyRefreshToken}
           canRestore={canInteract}
           onBeforeRestore={prepareRestore}
-          onRestore={applyRestoredContent}
-          onRestoreComplete={finishRestore}
+          onRestore={handleRestoredContent}
+          onRestoreComplete={handleRestoreComplete}
         />
       </div>
     </div>

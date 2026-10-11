@@ -69,7 +69,6 @@ async function authorizeConnection(
         throw new Error("Workspace membership required");
     }
 
-    // Hocuspocus uses this configuration to restrict writes.
     connectionConfig.readOnly = !canEditDocument(
         membership.role as WorkspaceRole,
     );
@@ -105,8 +104,8 @@ const collaborationServer = new Hocuspocus({
     },
 
     async beforeHandleAwareness({ states, context }) {
-        // Use the authenticated identity rather than trusting the
-        // name and color supplied in a client's awareness state.
+        // Trust the authenticated identity, not client-supplied
+        // awareness names and colors.
         const trustedUser = context?.user ?? null;
 
         for (const state of states.values()) {
@@ -129,8 +128,8 @@ const collaborationServer = new Hocuspocus({
             throw new Error("Document not found");
         }
 
-        // Load the authoritative Yjs state when the document has
-        // previously been used for collaborative editing.
+        // Use the stored binary Yjs state as the authoritative
+        // collaborative document when it exists.
         if (record.collaborationState?.byteLength) {
             const ydoc = new Y.Doc();
 
@@ -142,7 +141,8 @@ const collaborationServer = new Hocuspocus({
             return ydoc;
         }
 
-        // Convert documents created before collaboration was added.
+        // Initialize collaboration for documents created before
+        // binary Yjs state persistence was introduced.
         const content =
             (record.content as JSONContent | null) ?? EMPTY_DOCUMENT;
 
@@ -167,10 +167,16 @@ const collaborationServer = new Hocuspocus({
             return;
         }
 
-        const content = TiptapTransformer.fromYdoc(document);
+        // IMPORTANT: specify "default".
+        // Without a field name, fromYdoc() can return an object
+        // containing every shared field instead of a single Tiptap
+        // JSONContent document. That makes JSON and Yjs persistence
+        // inconsistent with the version-restoration helper.
+        const content = TiptapTransformer.fromYdoc(
+            document,
+            "default",
+        ) as JSONContent;
 
-        // Persist the binary Yjs state. Do not rebuild this state
-        // from JSON on every connection; Yjs needs its own updates.
         const collaborationState = Uint8Array.from(
             Y.encodeStateAsUpdate(document),
         );
@@ -187,8 +193,8 @@ const collaborationServer = new Hocuspocus({
     },
 });
 
-// Crossws returns a connection per WebSocket peer. Keep the
-// Hocuspocus connection associated with its peer ID.
+// Crossws returns a connection per WebSocket peer.
+// Keep the Hocuspocus connection associated with its peer ID.
 const clientConnections = new Map<
     string,
     ReturnType<typeof collaborationServer.handleConnection>
@@ -197,8 +203,6 @@ const clientConnections = new Map<
 const ws = crossws({
     hooks: {
         open(peer) {
-            // Use peer methods instead of peer.websocket directly
-            // because Bun's ServerWebSocket is a proxy.
             const wsLike: WebSocketLike = {
                 get readyState() {
                     return peer.websocket.readyState ?? 3;
@@ -245,6 +249,192 @@ const ws = crossws({
         },
     },
 });
+
+/**
+ * Recursively normalize JSON object keys for structural comparison.
+ * Array order is intentionally preserved.
+ */
+function normalizeJson(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(normalizeJson);
+    }
+
+    if (value !== null && typeof value === "object") {
+        const object = value as Record<string, unknown>;
+
+        return Object.fromEntries(
+            Object.keys(object)
+                .sort()
+                .map((key) => [key, normalizeJson(object[key])]),
+        );
+    }
+
+    return value;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+    return (
+        JSON.stringify(normalizeJson(left)) ===
+        JSON.stringify(normalizeJson(right))
+    );
+}
+
+type SaveRecoverySnapshot = (
+    content: JSONContent,
+) => Promise<void>;
+
+/**
+ * Restore a snapshot through the active Hocuspocus document.
+ *
+ * Connected collaborators receive the restoration through Yjs.
+ * The Hocuspocus store hook persists both the JSON and binary state.
+ */
+export async function restoreCollaborativeDocument(
+    documentId: string,
+    restoredContent: JSONContent,
+    saveRecoverySnapshot: SaveRecoverySnapshot,
+): Promise<void> {
+    const replacementDocument = TiptapTransformer.toYdoc(
+        restoredContent,
+        "default",
+        [StarterKit.configure({ undoRedo: false })],
+    );
+
+    // Keep this outside the try block because it is used after
+    // the direct connection closes to verify persisted state.
+    const expectedContent = TiptapTransformer.fromYdoc(
+        replacementDocument,
+        "default",
+    ) as JSONContent;
+
+    let directConnection:
+        | Awaited<
+            ReturnType<typeof collaborationServer.openDirectConnection>
+        >
+        | null = null;
+
+    try {
+        directConnection =
+            await collaborationServer.openDirectConnection(documentId, {
+                operation: "version-restore",
+            });
+
+        const activeDocument = directConnection.document;
+
+        if (!activeDocument) {
+            throw new Error(
+                "The collaborative document connection is already closed.",
+            );
+        }
+
+        // Read the current live document so restoration is recoverable.
+        const previousContent = TiptapTransformer.fromYdoc(
+            activeDocument,
+            "default",
+        ) as JSONContent;
+
+        await saveRecoverySnapshot(previousContent);
+
+        const replacementFragment =
+            replacementDocument.getXmlFragment("default");
+
+        const replacementNodes: (Y.XmlElement | Y.XmlText)[] =
+            replacementFragment.toArray().map((node) => {
+                if (
+                    node instanceof Y.XmlElement ||
+                    node instanceof Y.XmlText
+                ) {
+                    return node.clone();
+                }
+
+                throw new Error(
+                    "Unsupported Yjs XML node in restored content.",
+                );
+            });
+
+        // Apply the snapshot to the active document, not a separate
+        // Y.Doc, so the live Hocuspocus clients receive the update.
+        await directConnection.transact((document) => {
+            const fragment = document.getXmlFragment("default");
+
+            if (fragment.length > 0) {
+                fragment.delete(0, fragment.length);
+            }
+
+            if (replacementNodes.length > 0) {
+                fragment.insert(0, replacementNodes);
+            }
+        });
+
+        const activeContent = TiptapTransformer.fromYdoc(
+            activeDocument,
+            "default",
+        ) as JSONContent;
+
+        if (!sameJson(activeContent, expectedContent)) {
+            throw new Error(
+                "The active collaborative document does not match the requested restored content.",
+            );
+        }
+    } finally {
+        try {
+            if (directConnection) {
+                // Hocuspocus persists the document on direct disconnect.
+                await directConnection.disconnect();
+            }
+        } finally {
+            replacementDocument.destroy();
+        }
+    }
+
+    // Read back both representations after the store hook completes.
+    const persisted = await prisma.document.findUnique({
+        where: {
+            id: documentId,
+        },
+        select: {
+            content: true,
+            collaborationState: true,
+        },
+    });
+
+    if (!persisted) {
+        throw new Error(
+            "The document disappeared during version restoration.",
+        );
+    }
+
+    if (!persisted.collaborationState?.byteLength) {
+        throw new Error(
+            "The collaborative state was not persisted after restoration.",
+        );
+    }
+
+    const persistedDocument = new Y.Doc();
+
+    try {
+        Y.applyUpdate(
+            persistedDocument,
+            new Uint8Array(persisted.collaborationState),
+        );
+
+        const persistedYjsContent = TiptapTransformer.fromYdoc(
+            persistedDocument,
+            "default",
+        ) as JSONContent;
+
+        if (
+            !sameJson(persisted.content, expectedContent) ||
+            !sameJson(persistedYjsContent, expectedContent)
+        ) {
+            throw new Error(
+                "The restored JSON and Yjs state do not match in PostgreSQL.",
+            );
+        }
+    } finally {
+        persistedDocument.destroy();
+    }
+}
 
 export async function startCollaborationServer() {
     const port = Number(process.env.COLLAB_PORT ?? 1234);

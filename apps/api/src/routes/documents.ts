@@ -1,5 +1,7 @@
+
 import { Router } from "express";
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 
 import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
@@ -10,6 +12,7 @@ import {
   canDeleteDocument,
   type WorkspaceRole,
 } from "../lib/document-permissions";
+import { restoreCollaborativeDocument } from "../collaboration-server";
 
 const router: Router = Router();
 
@@ -38,7 +41,7 @@ async function getMembership(
 }
 
 /**
- * Create a document
+ * Create a document.
  *
  * POST /workspaces/:workspaceId/documents
  *
@@ -50,12 +53,9 @@ router.post(
   async (req, res) => {
     try {
       const session = await requireAuth(req.headers);
-
       const { workspaceId } = req.params;
 
-      const parsed = createDocumentSchema.safeParse(
-        req.body,
-      );
+      const parsed = createDocumentSchema.safeParse(req.body);
 
       if (!parsed.success) {
         return res.status(400).json({
@@ -75,11 +75,7 @@ router.post(
         });
       }
 
-      if (
-        !canCreateDocument(
-          membership.role as WorkspaceRole,
-        )
-      ) {
+      if (!canCreateDocument(membership.role as WorkspaceRole)) {
         return res.status(403).json({
           error: "Insufficient permissions",
         });
@@ -97,14 +93,9 @@ router.post(
         },
       });
 
-      return res.status(201).json({
-        document,
-      });
+      return res.status(201).json({ document });
     } catch (error) {
-      console.error(
-        "Create document failed:",
-        error,
-      );
+      console.error("Create document failed:", error);
 
       if (
         error instanceof Error &&
@@ -123,7 +114,7 @@ router.post(
 );
 
 /**
- * List workspace documents
+ * List workspace documents.
  *
  * GET /workspaces/:workspaceId/documents
  *
@@ -134,7 +125,6 @@ router.get(
   async (req, res) => {
     try {
       const session = await requireAuth(req.headers);
-
       const { workspaceId } = req.params;
 
       const membership = await getMembership(
@@ -148,24 +138,14 @@ router.get(
         });
       }
 
-      const documents =
-        await prisma.document.findMany({
-          where: {
-            workspaceId,
-          },
-          orderBy: {
-            updatedAt: "desc",
-          },
-        });
-
-      return res.json({
-        documents,
+      const documents = await prisma.document.findMany({
+        where: { workspaceId },
+        orderBy: { updatedAt: "desc" },
       });
+
+      return res.json({ documents });
     } catch (error) {
-      console.error(
-        "List documents failed:",
-        error,
-      );
+      console.error("List documents failed:", error);
 
       if (
         error instanceof Error &&
@@ -184,7 +164,7 @@ router.get(
 );
 
 /**
- * Get a single document
+ * Get one document.
  *
  * GET /documents/:documentId
  *
@@ -195,15 +175,11 @@ router.get(
   async (req, res) => {
     try {
       const session = await requireAuth(req.headers);
-
       const { documentId } = req.params;
 
-      const document =
-        await prisma.document.findUnique({
-          where: {
-            id: documentId,
-          },
-        });
+      const document = await prisma.document.findUnique({
+        where: { id: documentId },
+      });
 
       if (!document) {
         return res.status(404).json({
@@ -222,14 +198,9 @@ router.get(
         });
       }
 
-      return res.json({
-        document,
-      });
+      return res.json({ document });
     } catch (error) {
-      console.error(
-        "Get document failed:",
-        error,
-      );
+      console.error("Get document failed:", error);
 
       if (
         error instanceof Error &&
@@ -248,7 +219,7 @@ router.get(
 );
 
 /**
- * Update a document
+ * Update a document.
  *
  * PATCH /documents/:documentId
  *
@@ -263,11 +234,9 @@ router.patch(
   async (req, res) => {
     try {
       const session = await requireAuth(req.headers);
-
       const { documentId } = req.params;
 
-      const parsed =
-        updateDocumentSchema.safeParse(req.body);
+      const parsed = updateDocumentSchema.safeParse(req.body);
 
       if (!parsed.success) {
         return res.status(400).json({
@@ -282,31 +251,21 @@ router.patch(
         createVersion = false,
       } = parsed.data;
 
-      if (
-        title === undefined &&
-        content === undefined
-      ) {
+      if (title === undefined && content === undefined) {
         return res.status(400).json({
           error: "No fields provided for update",
         });
       }
 
-      if (
-        createVersion &&
-        content === undefined
-      ) {
+      if (createVersion && content === undefined) {
         return res.status(400).json({
-          error:
-            "Version snapshots require document content",
+          error: "Version snapshots require document content",
         });
       }
 
-      const document =
-        await prisma.document.findUnique({
-          where: {
-            id: documentId,
-          },
-        });
+      const document = await prisma.document.findUnique({
+        where: { id: documentId },
+      });
 
       if (!document) {
         return res.status(404).json({
@@ -325,67 +284,40 @@ router.patch(
         });
       }
 
-      if (
-        !canEditDocument(
-          membership.role as WorkspaceRole,
-        )
-      ) {
+      if (!canEditDocument(membership.role as WorkspaceRole)) {
         return res.status(403).json({
           error: "Insufficient permissions",
         });
       }
 
-      const updated =
-        await prisma.$transaction(async (tx) => {
-          const updatedDocument =
-            await tx.document.update({
-              where: {
-                id: document.id,
-              },
-
-              data: {
-                ...(title !== undefined
-                  ? {
-                    title,
-                  }
-                  : {}),
-
-                ...(content !== undefined
-                  ? {
-                    content: JSON.parse(
-                      JSON.stringify(content),
-                    ),
-                  }
-                  : {}),
-              },
-            });
-
-          if (
-            createVersion &&
-            content !== undefined
-          ) {
-            await tx.documentVersion.create({
-              data: {
-                documentId: document.id,
-
-                content: JSON.parse(
-                  JSON.stringify(content),
-                ),
-              },
-            });
-          }
-
-          return updatedDocument;
+      const updated = await prisma.$transaction(async (tx) => {
+        const updatedDocument = await tx.document.update({
+          where: { id: document.id },
+          data: {
+            ...(title !== undefined ? { title } : {}),
+            ...(content !== undefined
+              ? {
+                  content: JSON.parse(JSON.stringify(content)),
+                }
+              : {}),
+          },
         });
 
-      return res.json({
-        document: updated,
+        if (createVersion && content !== undefined) {
+          await tx.documentVersion.create({
+            data: {
+              documentId: document.id,
+              content: JSON.parse(JSON.stringify(content)),
+            },
+          });
+        }
+
+        return updatedDocument;
       });
+
+      return res.json({ document: updated });
     } catch (error) {
-      console.error(
-        "Update document failed:",
-        error,
-      );
+      console.error("Update document failed:", error);
 
       if (
         error instanceof Error &&
@@ -404,7 +336,7 @@ router.patch(
 );
 
 /**
- * Delete a document
+ * Delete a document.
  *
  * DELETE /documents/:documentId
  *
@@ -415,15 +347,11 @@ router.delete(
   async (req, res) => {
     try {
       const session = await requireAuth(req.headers);
-
       const { documentId } = req.params;
 
-      const document =
-        await prisma.document.findUnique({
-          where: {
-            id: documentId,
-          },
-        });
+      const document = await prisma.document.findUnique({
+        where: { id: documentId },
+      });
 
       if (!document) {
         return res.status(404).json({
@@ -442,11 +370,7 @@ router.delete(
         });
       }
 
-      if (
-        !canDeleteDocument(
-          membership.role as WorkspaceRole,
-        )
-      ) {
+      if (!canDeleteDocument(membership.role as WorkspaceRole)) {
         return res.status(403).json({
           error:
             "Only workspace owners and admins can delete documents",
@@ -454,17 +378,12 @@ router.delete(
       }
 
       await prisma.document.delete({
-        where: {
-          id: documentId,
-        },
+        where: { id: documentId },
       });
 
       return res.status(204).send();
     } catch (error) {
-      console.error(
-        "Delete document failed:",
-        error,
-      );
+      console.error("Delete document failed:", error);
 
       if (
         error instanceof Error &&
@@ -483,7 +402,7 @@ router.delete(
 );
 
 /**
- * Get document version history
+ * Get document version history.
  *
  * GET /documents/:documentId/versions
  *
@@ -495,17 +414,13 @@ router.get(
     try {
       const session = await requireAuth(req.headers);
 
-      const document =
-        await prisma.document.findUnique({
-          where: {
-            id: req.params.documentId,
-          },
-
-          select: {
-            id: true,
-            workspaceId: true,
-          },
-        });
+      const document = await prisma.document.findUnique({
+        where: { id: req.params.documentId },
+        select: {
+          id: true,
+          workspaceId: true,
+        },
+      });
 
       if (!document) {
         return res.status(404).json({
@@ -524,31 +439,19 @@ router.get(
         });
       }
 
-      const versions =
-        await prisma.documentVersion.findMany({
-          where: {
-            documentId: document.id,
-          },
-
-          orderBy: {
-            createdAt: "desc",
-          },
-
-          select: {
-            id: true,
-            content: true,
-            createdAt: true,
-          },
-        });
-
-      return res.json({
-        versions,
+      const versions = await prisma.documentVersion.findMany({
+        where: { documentId: document.id },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          content: true,
+          createdAt: true,
+        },
       });
+
+      return res.json({ versions });
     } catch (error) {
-      console.error(
-        "Get document versions failed:",
-        error,
-      );
+      console.error("Get document versions failed:", error);
 
       if (
         error instanceof Error &&
@@ -567,15 +470,12 @@ router.get(
 );
 
 /**
- * Restore a document version
+ * Restore a document version through the active collaborative Yjs document.
  *
  * POST /documents/:documentId/versions/:versionId/restore
  *
  * OWNER/ADMIN/EDITOR can restore.
  * MEMBER/VIEWER cannot restore.
- *
- * Restoring creates a new version so the operation
- * itself is recoverable.
  */
 router.post(
   "/documents/:documentId/versions/:versionId/restore",
@@ -583,17 +483,13 @@ router.post(
     try {
       const session = await requireAuth(req.headers);
 
-      const document =
-        await prisma.document.findUnique({
-          where: {
-            id: req.params.documentId,
-          },
-
-          select: {
-            id: true,
-            workspaceId: true,
-          },
-        });
+      const document = await prisma.document.findUnique({
+        where: { id: req.params.documentId },
+        select: {
+          id: true,
+          workspaceId: true,
+        },
+      });
 
       if (!document) {
         return res.status(404).json({
@@ -612,28 +508,22 @@ router.post(
         });
       }
 
-      if (
-        !canEditDocument(
-          membership.role as WorkspaceRole,
-        )
-      ) {
+      if (!canEditDocument(membership.role as WorkspaceRole)) {
         return res.status(403).json({
           error: "Insufficient permissions",
         });
       }
 
-      const version =
-        await prisma.documentVersion.findFirst({
-          where: {
-            id: req.params.versionId,
-            documentId: document.id,
-          },
-
-          select: {
-            id: true,
-            content: true,
-          },
-        });
+      const version = await prisma.documentVersion.findFirst({
+        where: {
+          id: req.params.versionId,
+          documentId: document.id,
+        },
+        select: {
+          id: true,
+          content: true,
+        },
+      });
 
       if (!version) {
         return res.status(404).json({
@@ -641,42 +531,43 @@ router.post(
         });
       }
 
-      const restored =
-        await prisma.$transaction(async (tx) => {
-          const updatedDocument =
-            await tx.document.update({
-              where: {
-                id: document.id,
-              },
-
-              data: {
-                content: JSON.parse(
-                  JSON.stringify(version.content),
-                ),
-              },
-            });
-
-          await tx.documentVersion.create({
+      await restoreCollaborativeDocument(
+        document.id,
+        version.content as JSONContent,
+        async (currentContent) => {
+          // Preserve the actual live content before restoration.
+          await prisma.documentVersion.create({
             data: {
               documentId: document.id,
-
-              content: JSON.parse(
-                JSON.stringify(version.content),
-              ),
+              content: JSON.parse(JSON.stringify(currentContent)),
             },
           });
-
-          return updatedDocument;
-        });
-
-      return res.json({
-        document: restored,
-      });
-    } catch (error) {
-      console.error(
-        "Restore document version failed:",
-        error,
+        },
       );
+
+      // Do not expose the binary collaborationState in the REST response.
+      const restored = await prisma.document.findUnique({
+        where: { id: document.id },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
+          workspaceId: true,
+          authorId: true,
+        },
+      });
+
+      if (!restored) {
+        return res.status(404).json({
+          error: "Document not found after restoration",
+        });
+      }
+
+      return res.json({ document: restored });
+    } catch (error) {
+      console.error("Restore document version failed:", error);
 
       if (
         error instanceof Error &&
