@@ -14,6 +14,26 @@ jobs:
     name: Validate
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: workspace_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d workspace_ai"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/workspace_ai
+      BETTER_AUTH_URL: http://127.0.0.1:4000
+      BETTER_AUTH_SECRET: workspace-ai-ci-integration-secret-0123456789
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,17 +48,21 @@ jobs:
 
       - name: Generate Prisma client
         run: bun --cwd packages/db generate
-        env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+
+      - name: Apply database migrations
+        run: bun --cwd packages/db run migrate:deploy
 
       - name: Run API unit tests
         run: bun --cwd apps/api test
 
-      - name: Lint
-        run: bun run lint
-
       - name: Type check
         run: bun run check-types
 
+      - name: Lint
+        run: bun run lint
+
       - name: Build
         run: bun run build
+
+      - name: Run collaboration integration tests
+        run: bun --cwd apps/api run test:integration
