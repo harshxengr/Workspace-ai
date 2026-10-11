@@ -11,7 +11,7 @@ import {
   type WorkspaceRole,
 } from "../lib/document-permissions";
 
-const router = Router();
+const router: Router = Router();
 
 const createDocumentSchema = z.object({
   title: z.string().trim().min(1).max(200),

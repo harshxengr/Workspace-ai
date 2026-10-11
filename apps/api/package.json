@@ -6,7 +6,8 @@
         "dev": "bun --watch src/index.ts",
         "build": "bun build src/index.ts --outdir dist --target bun",
         "start": "bun dist/index.js",
-        "test": "bun test"
+        "test": "bun test",
+        "check-types": "tsc --noEmit"
     },
     "dependencies": {
         "@hocuspocus/server": "^4.7.0",
@@ -24,5 +25,9 @@
         "express": "^5.2.1",
         "yjs": "^13.6.33",
         "zod": "^4.6.5"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.4.2",
+        "@types/node": "^26.6.5"
     }
 }

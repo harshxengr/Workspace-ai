@@ -12,7 +12,7 @@ import {
   type WorkspaceRole,
 } from "../lib/document-permissions";
 
-const router = Router();
+const router: Router = Router();
 
 router.get("/documents/:documentId/token", async (req, res) => {
   try {
