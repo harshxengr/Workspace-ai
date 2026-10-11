@@ -1,3 +1,4 @@
+
 name: CI
 
 on:
@@ -29,6 +30,9 @@ jobs:
         run: bun --cwd packages/db generate
         env:
           DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+
+      - name: Run API unit tests
+        run: bun --cwd apps/api test
 
       - name: Lint
         run: bun run lint

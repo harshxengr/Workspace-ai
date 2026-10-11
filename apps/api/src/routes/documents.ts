@@ -4,14 +4,14 @@ import { z } from "zod";
 import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
 
-const router = Router();
+import {
+  canCreateDocument,
+  canEditDocument,
+  canDeleteDocument,
+  type WorkspaceRole,
+} from "../lib/document-permissions";
 
-type WorkspaceRole =
-  | "OWNER"
-  | "ADMIN"
-  | "EDITOR"
-  | "MEMBER"
-  | "VIEWER";
+const router = Router();
 
 const createDocumentSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -35,22 +35,6 @@ async function getMembership(
       },
     },
   });
-}
-
-function canCreateDocument(role: WorkspaceRole) {
-  return role !== "VIEWER";
-}
-
-function canEditDocument(role: WorkspaceRole) {
-  return (
-    role === "OWNER" ||
-    role === "ADMIN" ||
-    role === "EDITOR"
-  );
-}
-
-function canDeleteDocument(role: WorkspaceRole) {
-  return role === "OWNER" || role === "ADMIN";
 }
 
 /**
@@ -362,16 +346,16 @@ router.patch(
               data: {
                 ...(title !== undefined
                   ? {
-                      title,
-                    }
+                    title,
+                  }
                   : {}),
 
                 ...(content !== undefined
                   ? {
-                      content: JSON.parse(
-                        JSON.stringify(content),
-                      ),
-                    }
+                    content: JSON.parse(
+                      JSON.stringify(content),
+                    ),
+                  }
                   : {}),
               },
             });
