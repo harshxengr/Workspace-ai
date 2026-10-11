@@ -17,7 +17,7 @@ type VersionHistoryProps = {
   refreshToken: number;
   canRestore: boolean;
   onBeforeRestore: () => Promise<boolean>;
-  onRestore: (content: JSONContent) => void;
+  onRestore: () => void;
   onRestoreComplete: () => void;
 };
 
@@ -95,12 +95,12 @@ export default function VersionHistory({
       setRestoringId(version.id);
       setError("");
 
-      // The editor saves pending edits and temporarily disables editing.
+      // Save pending edits and temporarily disable editing first.
       restoreWorkflowStarted = true;
 
-      const canRestore = await onBeforeRestore();
+      const canProceed = await onBeforeRestore();
 
-      if (!canRestore) {
+      if (!canProceed) {
         setError(
           "Restore was cancelled because pending edits could not be saved. Retry saving, then try again.",
         );
@@ -122,9 +122,10 @@ export default function VersionHistory({
         throw new Error("The restored document has no content.");
       }
 
-      onRestore(result.document.content);
-
-      await loadVersions();
+      // The backend has updated the active Yjs document. Do not apply
+      // the JSON through the editor again, which could create a second
+      // shared-document update.
+      onRestore();
     } catch (error) {
       console.error("Failed to restore document version:", error);
       setError(getErrorMessage(error));
