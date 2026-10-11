@@ -1,90 +1,115 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { JSONContent } from "@tiptap/core";
 
 import { apiFetch } from "../lib/api";
 
 type Version = {
   id: string;
-  content: Record<string, unknown>;
+  content: JSONContent;
   createdAt: string;
 };
 
 type VersionHistoryProps = {
   documentId: string;
-  onRestore: (
-    content: Record<string, unknown>,
-  ) => void;
+  refreshToken: number;
+  canRestore: boolean;
+  onBeforeRestore: () => Promise<boolean>;
+  onRestore: (content: JSONContent) => void;
+  onRestoreComplete: () => void;
 };
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "An unexpected error occurred.";
+}
 
 export default function VersionHistory({
   documentId,
+  refreshToken,
+  canRestore,
+  onBeforeRestore,
   onRestore,
+  onRestoreComplete,
 }: VersionHistoryProps) {
-  const [versions, setVersions] = useState<Version[]>(
-    [],
-  );
-
+  const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(false);
-
-  const [restoringId, setRestoringId] = useState<
-    string | null
-  >(null);
-
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  async function loadVersions() {
+  // Ignore responses belonging to an earlier request or document.
+  const requestSequenceRef = useRef(0);
+
+  const loadVersions = useCallback(async () => {
+    const requestSequence = ++requestSequenceRef.current;
+
     try {
       setLoading(true);
       setError("");
 
-      const result = await apiFetch<{
-        versions: Version[];
-      }>(
+      const result = await apiFetch<{ versions: Version[] }>(
         `/api/documents/${documentId}/versions`,
       );
 
-      setVersions(result.versions);
+      if (requestSequence === requestSequenceRef.current) {
+        setVersions(result.versions);
+      }
     } catch (error) {
-      console.error(
-        "Failed to load versions:",
-        error,
-      );
-
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to load version history",
-      );
+      if (requestSequence === requestSequenceRef.current) {
+        setError(getErrorMessage(error));
+      }
     } finally {
-      setLoading(false);
+      if (requestSequence === requestSequenceRef.current) {
+        setLoading(false);
+      }
     }
-  }
-
-  useEffect(() => {
-    void loadVersions();
   }, [documentId]);
 
-  async function restoreVersion(
-    version: Version,
-  ) {
+  useEffect(() => {
+    setVersions([]);
+    void loadVersions();
+
+    return () => {
+      // Invalidate any request that is still in flight.
+      requestSequenceRef.current += 1;
+    };
+  }, [loadVersions, refreshToken]);
+
+  async function restoreVersion(version: Version) {
     const confirmed = window.confirm(
       `Restore the version from ${new Date(
         version.createdAt,
-      ).toLocaleString()}?`,
+      ).toLocaleString()}?\n\nYour current document content will be replaced.`,
     );
 
-    if (!confirmed) {
+    if (!confirmed || restoringId !== null) {
       return;
     }
+
+    let restoreWorkflowStarted = false;
 
     try {
       setRestoringId(version.id);
       setError("");
 
+      // The editor saves pending edits and temporarily disables editing.
+      restoreWorkflowStarted = true;
+
+      const canRestore = await onBeforeRestore();
+
+      if (!canRestore) {
+        setError(
+          "Restore was cancelled because pending edits could not be saved. Retry saving, then try again.",
+        );
+        return;
+      }
+
       const result = await apiFetch<{
         document: {
-          content: Record<string, unknown>;
+          content: JSONContent | null;
         };
       }>(
         `/api/documents/${documentId}/versions/${version.id}/restore`,
@@ -93,102 +118,99 @@ export default function VersionHistory({
         },
       );
 
+      if (!result.document.content) {
+        throw new Error("The restored document has no content.");
+      }
+
       onRestore(result.document.content);
 
       await loadVersions();
     } catch (error) {
-      console.error(
-        "Failed to restore version:",
-        error,
-      );
-
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to restore version",
-      );
+      console.error("Failed to restore document version:", error);
+      setError(getErrorMessage(error));
     } finally {
       setRestoringId(null);
+
+      if (restoreWorkflowStarted) {
+        onRestoreComplete();
+      }
     }
   }
 
   return (
     <aside className="w-80 shrink-0 border-l p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold">
-            Version history
-          </h2>
-
-          <p className="mt-1 text-xs">
-            Manual snapshots
+          <h2 className="font-semibold">Version history</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Manually saved snapshots
           </p>
         </div>
 
         <button
           type="button"
           onClick={() => void loadVersions()}
-          disabled={loading}
-          className="rounded border px-2 py-1 text-xs"
+          disabled={loading || restoringId !== null}
+          className="rounded border px-2 py-1 text-xs disabled:opacity-50"
         >
-          {loading ? "..." : "Refresh"}
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 rounded border p-3 text-sm">
-          {error}
+        <div role="alert" className="mt-4 rounded border p-3 text-sm">
+          <p>{error}</p>
+
+          <button
+            type="button"
+            onClick={() => void loadVersions()}
+            disabled={loading || restoringId !== null}
+            className="mt-2 rounded border px-2 py-1 text-xs disabled:opacity-50"
+          >
+            Retry
+          </button>
         </div>
       )}
 
       {loading && versions.length === 0 && (
-        <p className="mt-4 text-sm">
+        <p role="status" className="mt-4 text-sm text-muted-foreground">
           Loading versions...
         </p>
       )}
 
-      {!loading && versions.length === 0 && (
+      {!loading && versions.length === 0 && !error && (
         <div className="mt-4 rounded border p-4 text-sm">
           <p>No snapshots yet.</p>
-
-          <p className="mt-1">
-            Click <strong>Snapshot</strong> after a
-            meaningful edit to save a version.
+          <p className="mt-1 text-muted-foreground">
+            Save a snapshot from the editor to preserve a version you
+            can restore later.
           </p>
         </div>
       )}
 
       <div className="mt-4 space-y-3">
         {versions.map((version, index) => (
-          <div
-            key={version.id}
-            className="rounded border p-3"
-          >
-            <div className="flex items-center justify-between">
+          <div key={version.id} className="rounded border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-medium">
                 Version {versions.length - index}
               </span>
 
-              <span className="text-xs">
-                {new Date(
-                  version.createdAt,
-                ).toLocaleString()}
-              </span>
+              <time
+                dateTime={version.createdAt}
+                className="text-xs text-muted-foreground"
+              >
+                {new Date(version.createdAt).toLocaleString()}
+              </time>
             </div>
 
             <button
               type="button"
-              onClick={() =>
-                void restoreVersion(version)
-              }
-              disabled={
-                restoringId === version.id
-              }
-              className="mt-3 rounded border px-3 py-1 text-xs"
+              onClick={() => void restoreVersion(version)}
+              disabled={!canRestore || restoringId !== null}
+              className="mt-3 rounded border px-3 py-1 text-xs disabled:opacity-50"
             >
-              {restoringId === version.id
-                ? "Restoring..."
-                : "Restore"}
+              {restoringId === version.id ? "Restoring..." : "Restore"}
             </button>
           </div>
         ))}
