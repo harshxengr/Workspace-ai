@@ -1,6 +1,6 @@
-
 import "dotenv/config";
 
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,17 +10,22 @@ import * as Y from "yjs";
 import { createCollaborationToken } from "@workspace/auth";
 import { prisma } from "@workspace/db";
 
-const API_DIRECTORY = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../..",
-);
+const API_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const COLLABORATION_FIELD = "default";
 const CONNECTION_TIMEOUT_MS = 12_000;
+const PERSISTENCE_ACK_TYPE = "workspace-ai:document-persisted";
+
+type PersistenceAcknowledgement = {
+  type: typeof PERSISTENCE_ACK_TYPE;
+  contentHash: string;
+  savedAt: string;
+};
 
 type TestClient = {
   document: Y.Doc;
   provider: HocuspocusProvider;
+  persistenceAcknowledgements: PersistenceAcknowledgement[];
 };
 
 type Fixture = {
@@ -79,6 +84,61 @@ function extractXmlText(
     .join("");
 }
 
+function normalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeJson);
+  }
+
+  if (value !== null && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+
+    return Object.fromEntries(
+      Object.keys(object)
+        .sort()
+        .map((key) => [key, normalizeJson(object[key])]),
+    );
+  }
+
+  return value;
+}
+
+function hashJsonContent(value: unknown): string {
+  const serialized = JSON.stringify(normalizeJson(value)) ?? "null";
+
+  return createHash("sha256").update(serialized).digest("hex");
+}
+
+function parsePersistenceAcknowledgement(
+  payload: string,
+): PersistenceAcknowledgement | null {
+  try {
+    const parsed: unknown = JSON.parse(payload);
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return null;
+    }
+
+    const message = parsed as Record<string, unknown>;
+
+    if (
+      message.type !== PERSISTENCE_ACK_TYPE ||
+      typeof message.contentHash !== "string" ||
+      typeof message.savedAt !== "string" ||
+      Number.isNaN(Date.parse(message.savedAt))
+    ) {
+      return null;
+    }
+
+    return {
+      type: PERSISTENCE_ACK_TYPE,
+      contentHash: message.contentHash,
+      savedAt: message.savedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function waitForDocumentText(
   document: Y.Doc,
   expected: string,
@@ -129,6 +189,30 @@ async function waitForProviderEvent(
 
     provider.on(eventName, handler);
   });
+}
+
+async function waitForPersistenceAcknowledgement(
+  client: TestClient,
+  expectedHash: string,
+  timeoutMs = 15_000,
+): Promise<PersistenceAcknowledgement> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const acknowledgement = client.persistenceAcknowledgements.find(
+      (item) => item.contentHash === expectedHash,
+    );
+
+    if (acknowledgement) {
+      return acknowledgement;
+    }
+
+    await sleep(50);
+  }
+
+  throw new Error(
+    `Timed out waiting for a persistence acknowledgement matching ${expectedHash}.`,
+  );
 }
 
 function getFreePort(): number {
@@ -247,6 +331,7 @@ async function connectClient(
   token: string,
 ): Promise<TestClient> {
   const document = new Y.Doc();
+  const persistenceAcknowledgements: PersistenceAcknowledgement[] = [];
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let resolveSynced!: () => void;
@@ -280,16 +365,27 @@ async function connectClient(
         clearTimeout(timeout);
       }
 
-      rejectSynced(
-        new Error(`Collaboration authentication failed: ${reason}`),
-      );
+      rejectSynced(new Error(`Collaboration authentication failed: ${reason}`));
+    },
+
+    onStateless({ payload }) {
+      const acknowledgement = parsePersistenceAcknowledgement(payload);
+
+      if (acknowledgement) {
+        persistenceAcknowledgements.push(acknowledgement);
+      }
     },
   });
 
   try {
     await synced;
 
-    const client = { document, provider };
+    const client = {
+      document,
+      provider,
+      persistenceAcknowledgements,
+    };
+
     activeClients.add(client);
 
     return client;
@@ -300,9 +396,7 @@ async function connectClient(
   }
 }
 
-async function readPersistedText(
-  documentId: string,
-): Promise<string | null> {
+async function readPersistedText(documentId: string): Promise<string | null> {
   const record = await prisma.document.findUnique({
     where: { id: documentId },
     select: { collaborationState: true },
@@ -315,14 +409,9 @@ async function readPersistedText(
   const restoredDocument = new Y.Doc();
 
   try {
-    Y.applyUpdate(
-      restoredDocument,
-      new Uint8Array(record.collaborationState),
-    );
+    Y.applyUpdate(restoredDocument, new Uint8Array(record.collaborationState));
 
-    return extractXmlText(
-      restoredDocument.getXmlFragment(COLLABORATION_FIELD),
-    );
+    return extractXmlText(restoredDocument.getXmlFragment(COLLABORATION_FIELD));
   } finally {
     restoredDocument.destroy();
   }
@@ -344,9 +433,7 @@ async function waitForPersistedText(
     await sleep(250);
   }
 
-  throw new Error(
-    `Expected collaborative text was not persisted: ${expected}`,
-  );
+  throw new Error(`Expected collaborative text was not persisted: ${expected}`);
 }
 
 beforeAll(async () => {
@@ -471,107 +558,112 @@ afterAll(async () => {
   }
 }, 30_000);
 
-test(
-  "reconnects and merges offline and online edits without losing either",
-  async () => {
-    if (!fixture) {
-      throw new Error("Integration fixture was not initialized.");
+test("reconnects and merges offline and online edits without losing either", async () => {
+  if (!fixture) {
+    throw new Error("Integration fixture was not initialized.");
+  }
+
+  let ownerClient: TestClient | null = null;
+  let editorClient: TestClient | null = null;
+
+  try {
+    ownerClient = await connectClient(fixture.documentId, fixture.ownerToken);
+
+    editorClient = await connectClient(fixture.documentId, fixture.editorToken);
+
+    const offlineMarker = `offline-edit-${crypto.randomUUID()}`;
+    const onlineMarker = `online-edit-${crypto.randomUUID()}`;
+
+    // Explicitly disconnect the editor while retaining its local Y.Doc.
+    const disconnected = waitForProviderEvent(
+      editorClient.provider,
+      "disconnect",
+    );
+
+    editorClient.provider.disconnect();
+    await disconnected;
+
+    expect(editorClient.provider.synced).toBe(false);
+
+    // This edit remains local because the editor's WebSocket is closed.
+    appendParagraph(editorClient.document, offlineMarker);
+
+    await sleep(250);
+
+    expect(
+      extractXmlText(ownerClient.document.getXmlFragment(COLLABORATION_FIELD)),
+    ).not.toContain(offlineMarker);
+
+    // The owner continues editing while the other client is disconnected.
+    appendParagraph(ownerClient.document, onlineMarker);
+
+    await waitForPersistedText(fixture.documentId, onlineMarker);
+
+    // Reconnect and wait for the provider's next completed sync handshake.
+    const resynced = waitForProviderEvent(editorClient.provider, "synced");
+
+    await Promise.all([editorClient.provider.connect(), resynced]);
+
+    // Both the previously offline update and the server-side update
+    // must reach the opposite client after reconnection.
+    await waitForDocumentText(ownerClient.document, offlineMarker);
+    await waitForDocumentText(editorClient.document, onlineMarker);
+
+    const ownerText = extractXmlText(
+      ownerClient.document.getXmlFragment(COLLABORATION_FIELD),
+    );
+
+    const editorText = extractXmlText(
+      editorClient.document.getXmlFragment(COLLABORATION_FIELD),
+    );
+
+    expect(ownerText).toContain(offlineMarker);
+    expect(ownerText).toContain(onlineMarker);
+    expect(editorText).toContain(offlineMarker);
+    expect(editorText).toContain(onlineMarker);
+
+    // Both clients must now represent exactly the same shared document.
+    expect(ownerText).toBe(editorText);
+
+    // Both changes must be stored in the persisted binary Yjs state.
+    await waitForPersistedText(fixture.documentId, offlineMarker);
+    await waitForPersistedText(fixture.documentId, onlineMarker);
+
+    const persistedText = await readPersistedText(fixture.documentId);
+
+    expect(persistedText).toContain(offlineMarker);
+    expect(persistedText).toContain(onlineMarker);
+    expect(persistedText).toBe(ownerText);
+
+    // Verify the acknowledgement hash against the JSON record in
+    // PostgreSQL, not against a client-provided value.
+    const persistedRecord = await prisma.document.findUnique({
+      where: { id: fixture.documentId },
+      select: { content: true },
+    });
+
+    if (!persistedRecord) {
+      throw new Error("Persisted document was not found.");
     }
 
-    let ownerClient: TestClient | null = null;
-    let editorClient: TestClient | null = null;
+    const expectedHash = hashJsonContent(persistedRecord.content);
 
-    try {
-      ownerClient = await connectClient(
-        fixture.documentId,
-        fixture.ownerToken,
-      );
+    const [ownerAcknowledgement, editorAcknowledgement] = await Promise.all([
+      waitForPersistenceAcknowledgement(ownerClient, expectedHash),
+      waitForPersistenceAcknowledgement(editorClient, expectedHash),
+    ]);
 
-      editorClient = await connectClient(
-        fixture.documentId,
-        fixture.editorToken,
-      );
-
-      const offlineMarker = `offline-edit-${crypto.randomUUID()}`;
-      const onlineMarker = `online-edit-${crypto.randomUUID()}`;
-
-      // Explicitly disconnect the editor while retaining its local Y.Doc.
-      const disconnected = waitForProviderEvent(
-        editorClient.provider,
-        "disconnect",
-      );
-
-      editorClient.provider.disconnect();
-      await disconnected;
-
-      expect(editorClient.provider.synced).toBe(false);
-
-      // This edit remains local because the editor's WebSocket is closed.
-      appendParagraph(editorClient.document, offlineMarker);
-
-      await sleep(250);
-
-      expect(
-        extractXmlText(
-          ownerClient.document.getXmlFragment(COLLABORATION_FIELD),
-        ),
-      ).not.toContain(offlineMarker);
-
-      // The owner continues editing while the other client is disconnected.
-      appendParagraph(ownerClient.document, onlineMarker);
-
-      await waitForPersistedText(fixture.documentId, onlineMarker);
-
-      // Reconnect and wait for the provider's next completed sync handshake.
-      const resynced = waitForProviderEvent(
-        editorClient.provider,
-        "synced",
-      );
-
-      await Promise.all([
-        editorClient.provider.connect(),
-        resynced,
-      ]);
-
-      // Both the previously offline update and the server-side update
-      // must reach the opposite client after reconnection.
-      await waitForDocumentText(ownerClient.document, offlineMarker);
-      await waitForDocumentText(editorClient.document, onlineMarker);
-
-      const ownerText = extractXmlText(
-        ownerClient.document.getXmlFragment(COLLABORATION_FIELD),
-      );
-
-      const editorText = extractXmlText(
-        editorClient.document.getXmlFragment(COLLABORATION_FIELD),
-      );
-
-      expect(ownerText).toContain(offlineMarker);
-      expect(ownerText).toContain(onlineMarker);
-      expect(editorText).toContain(offlineMarker);
-      expect(editorText).toContain(onlineMarker);
-
-      // Both clients must now represent exactly the same shared document.
-      expect(ownerText).toBe(editorText);
-
-      // Check that both changes also reach the persisted binary Yjs state.
-      await waitForPersistedText(fixture.documentId, offlineMarker);
-      await waitForPersistedText(fixture.documentId, onlineMarker);
-
-      const persistedText = await readPersistedText(fixture.documentId);
-
-      expect(persistedText).toContain(offlineMarker);
-      expect(persistedText).toContain(onlineMarker);
-      expect(persistedText).toBe(ownerText);
-    } finally {
-      if (editorClient) {
-        disposeClient(editorClient);
-      }
-
-      if (ownerClient) {
-        disposeClient(ownerClient);
-      }
+    expect(ownerAcknowledgement.contentHash).toBe(expectedHash);
+    expect(editorAcknowledgement.contentHash).toBe(expectedHash);
+    expect(Number.isNaN(Date.parse(ownerAcknowledgement.savedAt))).toBe(false);
+    expect(Number.isNaN(Date.parse(editorAcknowledgement.savedAt))).toBe(false);
+  } finally {
+    if (editorClient) {
+      disposeClient(editorClient);
     }
-  },
-  60_000,
-);
+
+    if (ownerClient) {
+      disposeClient(ownerClient);
+    }
+  }
+}, 60_000);
