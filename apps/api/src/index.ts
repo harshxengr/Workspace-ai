@@ -7,6 +7,9 @@ import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
 import workspaceRouter from "./routes/workspaces";
 import memberRouter from "./routes/members";
+import documentRouter from "./routes/documents";
+import collaborationRouter from "./routes/collaboration";
+import { startCollaborationServer } from "./collaboration-server";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -61,7 +64,16 @@ app.get("/api/me", async (req, res) => {
 
 app.use("/api/workspaces", workspaceRouter);
 app.use("/api/workspaces", memberRouter);
+app.use("/api", documentRouter);
+app.use("/api/collaboration", collaborationRouter);
 
 app.listen(PORT, () => {
   console.log(`API running on http://localhost:${PORT}`);
+});
+
+void startCollaborationServer().catch((error: unknown) => {
+  console.error(
+    "Failed to start collaboration server:",
+    error,
+  );
 });

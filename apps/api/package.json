@@ -5,17 +5,29 @@
     "scripts": {
         "dev": "bun --watch src/index.ts",
         "build": "bun build src/index.ts --outdir dist --target bun",
-        "start": "bun dist/index.js"
+        "start": "bun dist/index.js",
+        "test": "bun test",
+        "check-types": "tsc --noEmit"
     },
     "dependencies": {
+        "@hocuspocus/server": "^4.7.0",
+        "@hocuspocus/transformer": "^4.7.0",
+        "@tiptap/core": "^3.31.4",
+        "@tiptap/starter-kit": "^3.31.4",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
         "@workspace/auth": "workspace:*",
         "@workspace/db": "workspace:*",
         "better-auth": "^1.7.7",
         "cors": "^2.8.6",
+        "crossws": "^0.4.15",
         "dotenv": "^18.0.5",
         "express": "^5.2.1",
+        "yjs": "^13.6.33",
         "zod": "^4.6.5"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.4.2",
+        "@types/node": "^26.6.5"
     }
 }

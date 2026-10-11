@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
 
-const router = Router();
+const router: Router = Router();
 
 const createWorkspaceSchema = z.object({
   name: z.string().trim().min(2).max(100),
