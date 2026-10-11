@@ -11,24 +11,31 @@
     "check-types": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@hocuspocus/provider": "^4",
     "@repo/ui": "*",
     "@tiptap/core": "^3.31.4",
+    "@tiptap/extension-collaboration": "^3.31.4",
+    "@tiptap/extension-collaboration-caret": "^3.31.4",
     "@tiptap/pm": "^3.31.4",
     "@tiptap/react": "^3.31.4",
     "@tiptap/starter-kit": "^3.31.4",
     "better-auth": "^1.7.7",
     "next": "16.3.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@babel/preset-typescript": "^8.0.1",
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "26.4.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "eslint": "10.9.1",
+    "postcss": "^8.5.29",
+    "tailwindcss": "^4.3.3",
     "typescript": "7.0.2"
   }
 }
