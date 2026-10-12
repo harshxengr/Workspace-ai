@@ -199,7 +199,7 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-5xl">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b pb-6">
           <div>
-            <Link href="/" className="text-sm underline">
+            <Link href="/dashboard" className="text-sm underline">
               WorkspaceAI
             </Link>
 

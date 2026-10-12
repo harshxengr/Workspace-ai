@@ -1,3 +1,4 @@
+
 @import "tailwindcss";
 
 @theme inline {
@@ -25,40 +26,49 @@
   --destructive: #b91c1c;
 }
 
-* {
-  box-sizing: border-box;
-}
+/*
+ * Keep global resets in the base layer so Tailwind utility classes
+ * such as text-white, text-slate-950, text-sm and font-semibold
+ * can override them.
+ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-html,
-body {
-  min-height: 100%;
-  max-width: 100vw;
-  overflow-x: hidden;
-}
+  html,
+  body {
+    min-height: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-}
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 
-button {
-  cursor: pointer;
-}
+  button {
+    cursor: pointer;
+  }
 
-button:disabled {
-  cursor: not-allowed;
-}
+  button:disabled {
+    cursor: not-allowed;
+  }
 
-a {
-  color: inherit;
-  text-decoration: none;
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 /* Keep the existing starter-page image behavior. */
@@ -131,8 +141,7 @@ a {
   margin-block: 1.5rem;
 }
 
-
-/* Real-time collaborative caret */
+/* Real-time collaborative caret. */
 .tiptap .collaboration-carets__caret {
   border-left: 2px solid currentColor;
   border-right: 2px solid currentColor;
@@ -143,7 +152,7 @@ a {
   word-break: normal;
 }
 
-/* Collaborator name above their caret */
+/* Collaborator name above their caret. */
 .tiptap .collaboration-carets__label {
   border-radius: 4px 4px 4px 0;
   color: #ffffff;
