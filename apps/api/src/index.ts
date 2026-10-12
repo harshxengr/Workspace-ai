@@ -1,25 +1,55 @@
 import "dotenv/config";
+
 import express from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
-import { auth } from "@workspace/auth";
+
+import { auth, getWebOrigins, requireAuth } from "@workspace/auth";
+
 import { prisma } from "@workspace/db";
-import { requireAuth } from "@workspace/auth";
+
 import workspaceRouter from "./routes/workspaces";
 import memberRouter from "./routes/members";
 import documentRouter from "./routes/documents";
 import collaborationRouter from "./routes/collaboration";
+
 import { startCollaborationServer } from "./collaboration-server";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const allowedWebOrigins = new Set(getWebOrigins());
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin(origin, callback) {
+      if (!origin) {
+        // Non-browser clients do not need CORS response headers.
+        return callback(null, false);
+      }
+
+      if (allowedWebOrigins.has(origin)) {
+        return callback(null, origin);
+      }
+
+      return callback(null, false);
+    },
     credentials: true,
   }),
 );
+
+// CORS controls browser access to responses; this middleware also rejects
+// requests carrying an explicitly untrusted Origin header.
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+
+  if (origin && !allowedWebOrigins.has(origin)) {
+    return res.status(403).json({
+      error: "Origin not allowed",
+    });
+  }
+
+  return next();
+});
 
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
@@ -72,8 +102,5 @@ app.listen(PORT, () => {
 });
 
 void startCollaborationServer().catch((error: unknown) => {
-  console.error(
-    "Failed to start collaboration server:",
-    error,
-  );
+  console.error("Failed to start collaboration server:", error);
 });
