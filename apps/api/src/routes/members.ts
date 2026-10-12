@@ -1,7 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
+
 import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
+
+import {
+  canAddWorkspaceMembers,
+  canAssignWorkspaceRole,
+} from "../lib/member-permissions";
+import type { WorkspaceRole } from "../lib/document-permissions";
 
 const router: Router = Router();
 
@@ -13,7 +20,6 @@ const addMemberSchema = z.object({
 router.post("/:workspaceId/members", async (req, res) => {
   try {
     const session = await requireAuth(req.headers);
-
     const { workspaceId } = req.params;
 
     const parsed = addMemberSchema.safeParse(req.body);
@@ -25,19 +31,35 @@ router.post("/:workspaceId/members", async (req, res) => {
       });
     }
 
-    const owner = await prisma.workspaceMember.findFirst({
+    const membership = await prisma.workspaceMember.findUnique({
       where: {
-        workspaceId,
-        userId: session.user.id,
-        role: {
-          in: ["OWNER", "ADMIN"],
+        workspaceId_userId: {
+          workspaceId,
+          userId: session.user.id,
         },
+      },
+      select: {
+        role: true,
       },
     });
 
-    if (!owner) {
+    if (!membership) {
       return res.status(403).json({
         error: "Insufficient permissions",
+      });
+    }
+
+    const actorRole = membership.role as WorkspaceRole;
+
+    if (!canAddWorkspaceMembers(actorRole)) {
+      return res.status(403).json({
+        error: "Insufficient permissions",
+      });
+    }
+
+    if (!canAssignWorkspaceRole(actorRole, parsed.data.role)) {
+      return res.status(403).json({
+        error: "You cannot assign this workspace role",
       });
     }
 
@@ -97,7 +119,6 @@ router.post("/:workspaceId/members", async (req, res) => {
 router.get("/:workspaceId/members", async (req, res) => {
   try {
     const session = await requireAuth(req.headers);
-
     const { workspaceId } = req.params;
 
     const isMember = await prisma.workspaceMember.findUnique({
