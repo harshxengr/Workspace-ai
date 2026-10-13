@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -57,12 +56,7 @@ type PersistenceAcknowledgement = {
 };
 
 type PersistenceStatus =
-  | "idle"
-  | "checking"
-  | "saving"
-  | "saved"
-  | "delayed"
-  | "unknown";
+  "idle" | "checking" | "saving" | "saved" | "delayed" | "unknown";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error
@@ -141,8 +135,7 @@ export default function Editor({ documentId }: EditorProps) {
   const [persistenceAcknowledgement, setPersistenceAcknowledgement] =
     useState<PersistenceAcknowledgement | null>(null);
 
-  const authorizationPath =
-    `/api/collaboration/documents/${documentId}/token`;
+  const authorizationPath = `/api/collaboration/documents/${documentId}/token`;
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +152,7 @@ export default function Editor({ documentId }: EditorProps) {
     async function initializeCollaboration() {
       try {
         const authorization =
-          await apiFetch<CollaborationAuthorization>(
-            authorizationPath,
-          );
+          await apiFetch<CollaborationAuthorization>(authorizationPath);
 
         if (cancelled) {
           return;
@@ -175,9 +166,7 @@ export default function Editor({ documentId }: EditorProps) {
         let initialToken: string | null = authorization.token;
 
         const provider = new HocuspocusProvider({
-          url:
-            process.env.NEXT_PUBLIC_COLLAB_URL ??
-            "ws://localhost:1234",
+          url: process.env.NEXT_PUBLIC_COLLAB_URL ?? "ws://localhost:1234",
           name: documentId,
           document: sharedDocument,
 
@@ -188,10 +177,9 @@ export default function Editor({ documentId }: EditorProps) {
               return token;
             }
 
-            const refreshed =
-              await apiFetch<{ token: string }>(
-                authorizationPath,
-              );
+            const refreshed = await apiFetch<{ token: string }>(
+              authorizationPath,
+            );
 
             return refreshed.token;
           },
@@ -219,8 +207,7 @@ export default function Editor({ documentId }: EditorProps) {
               return;
             }
 
-            const acknowledgement =
-              parsePersistenceAcknowledgement(payload);
+            const acknowledgement = parsePersistenceAcknowledgement(payload);
 
             if (acknowledgement) {
               setPersistenceAcknowledgement(acknowledgement);
@@ -255,10 +242,7 @@ export default function Editor({ documentId }: EditorProps) {
         setLoading(false);
       } catch (error) {
         if (!cancelled) {
-          console.error(
-            "Failed to initialize collaboration:",
-            error,
-          );
+          console.error("Failed to initialize collaboration:", error);
           setConnectionError(getErrorMessage(error));
           setLoading(false);
         }
@@ -284,11 +268,7 @@ export default function Editor({ documentId }: EditorProps) {
 
   if (loading) {
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className="rounded-lg border p-6"
-      >
+      <div role="status" aria-live="polite" className="rounded-lg border p-6">
         Connecting to the collaborative document...
       </div>
     );
@@ -397,8 +377,7 @@ function CollaborativeDocumentEditor({
 
       immediatelyRender: false,
 
-      editable:
-        session.canEdit && connectionStatus === "connected",
+      editable: session.canEdit && connectionStatus === "connected",
 
       editorProps: {
         attributes: {
@@ -431,9 +410,7 @@ function CollaborativeDocumentEditor({
         setTitle(result.document.title);
 
         if (result.document.content !== null) {
-          const contentHash = await hashJsonContent(
-            result.document.content,
-          );
+          const contentHash = await hashJsonContent(result.document.content);
 
           if (cancelled) {
             return;
@@ -449,9 +426,7 @@ function CollaborativeDocumentEditor({
         }
       } catch (error) {
         if (!cancelled) {
-          setError(
-            `Could not load document title: ${getErrorMessage(error)}`,
-          );
+          setError(`Could not load document title: ${getErrorMessage(error)}`);
           setPersistenceStatus("unknown");
         }
       } finally {
@@ -470,66 +445,53 @@ function CollaborativeDocumentEditor({
 
   // Acknowledge a save only if the current Tiptap JSON matches a content
   // snapshot that the server confirms was written to PostgreSQL.
-  const persistenceSnapshot =
-    !loadedPersistenceSnapshot
-      ? persistenceAcknowledgement
-      : !persistenceAcknowledgement
-        ? loadedPersistenceSnapshot
-        : Date.parse(persistenceAcknowledgement.savedAt) >=
+  const persistenceSnapshot = !loadedPersistenceSnapshot
+    ? persistenceAcknowledgement
+    : !persistenceAcknowledgement
+      ? loadedPersistenceSnapshot
+      : Date.parse(persistenceAcknowledgement.savedAt) >=
           Date.parse(loadedPersistenceSnapshot.savedAt)
-          ? persistenceAcknowledgement
-          : loadedPersistenceSnapshot;
+        ? persistenceAcknowledgement
+        : loadedPersistenceSnapshot;
 
+  useEffect(() => {
+    if (!editor || !persistenceSnapshot) {
+      return;
+    }
 
+    let cancelled = false;
+    const revisionAtStart = documentRevisionRef.current;
 
-useEffect(() => {
-  if (!editor || !persistenceSnapshot) {
-    return;
-  }
+    async function verifyPersistedContent(
+      activeEditor: NonNullable<typeof editor>,
+      confirmedSnapshot: PersistenceAcknowledgement,
+    ): Promise<void> {
+      try {
+        const currentHash = await hashJsonContent(activeEditor.getJSON());
 
-  let cancelled = false;
-  const revisionAtStart = documentRevisionRef.current;
+        if (cancelled || revisionAtStart !== documentRevisionRef.current) {
+          return;
+        }
 
-  async function verifyPersistedContent(
-    activeEditor: NonNullable<typeof editor>,
-    confirmedSnapshot: PersistenceAcknowledgement,
-  ): Promise<void> {
-    try {
-      const currentHash = await hashJsonContent(
-        activeEditor.getJSON(),
-      );
-
-      if (
-        cancelled ||
-        revisionAtStart !== documentRevisionRef.current
-      ) {
-        return;
-      }
-
-      if (currentHash === confirmedSnapshot.contentHash) {
-        setPersistenceStatus("saved");
-      } else {
-        setPersistenceStatus("saving");
-      }
-    } catch {
-      if (
-        !cancelled &&
-        revisionAtStart === documentRevisionRef.current
-      ) {
-        setPersistenceStatus("unknown");
+        if (currentHash === confirmedSnapshot.contentHash) {
+          setPersistenceStatus("saved");
+        } else {
+          setPersistenceStatus("saving");
+        }
+      } catch {
+        if (!cancelled && revisionAtStart === documentRevisionRef.current) {
+          setPersistenceStatus("unknown");
+        }
       }
     }
-  }
 
-  setPersistenceStatus("checking");
-  void verifyPersistedContent(editor, persistenceSnapshot);
+    setPersistenceStatus("checking");
+    void verifyPersistedContent(editor, persistenceSnapshot);
 
-  return () => {
-    cancelled = true;
-  };
-}, [editor, persistenceSnapshot]);
-
-
+    return () => {
+      cancelled = true;
+    };
+  }, [editor, persistenceSnapshot]);
 
   useEffect(() => {
     const handleDocumentUpdate = () => {
@@ -562,18 +524,12 @@ useEffect(() => {
 
   useEffect(() => {
     editor?.setEditable(
-      session.canEdit &&
-      connectionStatus === "connected" &&
-      !busy,
+      session.canEdit && connectionStatus === "connected" && !busy,
     );
   }, [editor, session.canEdit, connectionStatus, busy]);
 
   async function saveTitle(value: string) {
-    if (
-      !session.canEdit ||
-      connectionStatus !== "connected" ||
-      titleLoading
-    ) {
+    if (!session.canEdit || connectionStatus !== "connected" || titleLoading) {
       return;
     }
 
@@ -699,9 +655,7 @@ useEffect(() => {
   }
 
   const canInteract =
-    session.canEdit &&
-    connectionStatus === "connected" &&
-    !busy;
+    session.canEdit && connectionStatus === "connected" && !busy;
 
   let persistenceLabel: string;
 
@@ -709,8 +663,8 @@ useEffect(() => {
     case "saved":
       persistenceLabel = persistenceSnapshot
         ? `Saved to database at ${new Date(
-          persistenceSnapshot.savedAt,
-        ).toLocaleTimeString()}`
+            persistenceSnapshot.savedAt,
+          ).toLocaleTimeString()}`
         : "Saved to database";
       break;
     case "saving":
@@ -735,10 +689,9 @@ useEffect(() => {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${connectionStatus === "connected"
-                  ? "bg-green-500"
-                  : "bg-red-500"
-                }`}
+              className={`inline-block h-2.5 w-2.5 rounded-full ${
+                connectionStatus === "connected" ? "bg-green-500" : "bg-red-500"
+              }`}
               aria-hidden="true"
             />
 
@@ -839,9 +792,7 @@ useEffect(() => {
 
             <button
               type="button"
-              onClick={() =>
-                editor.chain().focus().toggleBulletList().run()
-              }
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
               disabled={!canInteract}
               aria-label="Bullet list"
               className="rounded border px-3 py-1 text-sm disabled:opacity-50"
@@ -851,9 +802,7 @@ useEffect(() => {
 
             <button
               type="button"
-              onClick={() =>
-                editor.chain().focus().toggleOrderedList().run()
-              }
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
               disabled={!canInteract}
               aria-label="Numbered list"
               className="rounded border px-3 py-1 text-sm disabled:opacity-50"

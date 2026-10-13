@@ -75,9 +75,7 @@ export default function SignupPage() {
           required
         />
 
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <button
           className="w-full rounded-md bg-primary p-2 text-primary-foreground"

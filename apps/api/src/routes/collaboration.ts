@@ -57,8 +57,7 @@ router.get("/documents/:documentId/token", async (req, res) => {
       });
     }
 
-    const userName =
-      session.user.name?.trim() || session.user.email;
+    const userName = session.user.name?.trim() || session.user.email;
 
     const user = {
       id: session.user.id,
@@ -80,10 +79,7 @@ router.get("/documents/:documentId/token", async (req, res) => {
       user,
     });
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "UNAUTHORIZED"
-    ) {
+    if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return res.status(401).json({
         error: "Unauthorized",
       });

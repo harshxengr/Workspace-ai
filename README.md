@@ -1,4 +1,3 @@
-
 # WorkspaceAI
 
 WorkspaceAI is a collaborative workspace and document editor built with Next.js, Bun, Express, PostgreSQL, Prisma, Tiptap, Yjs, and Hocuspocus.
@@ -22,20 +21,20 @@ It provides a foundation for teams to organize documents, collaborate in real ti
 
 ## Technology stack
 
-| Area | Technology |
-|---|---|
-| Frontend | Next.js, React, TypeScript |
-| Styling | Tailwind CSS |
-| Rich-text editor | Tiptap |
-| Collaborative document model | Yjs |
-| Collaboration server | Hocuspocus |
-| Backend API | Bun, Express |
-| Authentication | Better Auth |
-| Database | PostgreSQL |
-| ORM and migrations | Prisma |
-| Validation | Zod |
-| Monorepo | Bun workspaces, Turborepo |
-| CI | GitHub Actions |
+| Area                         | Technology                 |
+| ---------------------------- | -------------------------- |
+| Frontend                     | Next.js, React, TypeScript |
+| Styling                      | Tailwind CSS               |
+| Rich-text editor             | Tiptap                     |
+| Collaborative document model | Yjs                        |
+| Collaboration server         | Hocuspocus                 |
+| Backend API                  | Bun, Express               |
+| Authentication               | Better Auth                |
+| Database                     | PostgreSQL                 |
+| ORM and migrations           | Prisma                     |
+| Validation                   | Zod                        |
+| Monorepo                     | Bun workspaces, Turborepo  |
+| CI                           | GitHub Actions             |
 
 ## Architecture
 
@@ -229,13 +228,13 @@ bun run dev
 
 The expected local endpoints are:
 
-| Service | URL |
-|---|---|
-| Web application | http://localhost:3000 |
-| REST API | http://localhost:4000 |
-| Collaboration WebSocket | ws://localhost:1234 |
-| API health check | http://localhost:4000/health |
-| Database health check | http://localhost:4000/health/db |
+| Service                 | URL                             |
+| ----------------------- | ------------------------------- |
+| Web application         | http://localhost:3000           |
+| REST API                | http://localhost:4000           |
+| Collaboration WebSocket | ws://localhost:1234             |
+| API health check        | http://localhost:4000/health    |
+| Database health check   | http://localhost:4000/health/db |
 
 The API process also starts the collaboration server.
 
@@ -245,13 +244,13 @@ Open the web application, create an account, sign in, and create a workspace to 
 
 WorkspaceAI defines these roles:
 
-| Role | Intended access |
-|---|---|
-| OWNER | Workspace ownership and administrative access |
-| ADMIN | Administrative workspace access |
-| EDITOR | Create and edit documents |
+| Role   | Intended access                                        |
+| ------ | ------------------------------------------------------ |
+| OWNER  | Workspace ownership and administrative access          |
+| ADMIN  | Administrative workspace access                        |
+| EDITOR | Create and edit documents                              |
 | MEMBER | Workspace membership without document-edit permissions |
-| VIEWER | Read-only document access |
+| VIEWER | Read-only document access                              |
 
 Document creation, editing, deletion, membership management, and version restoration are enforced by backend permission checks. Refer to `apps/api/src/lib/document-permissions.ts` for the actual permission rules.
 
@@ -276,34 +275,34 @@ The REST API is served by Express at the configured API URL.
 
 ### Health and authentication
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/health` | Check API availability |
-| GET | `/health/db` | Check database connectivity |
-| GET | `/api/me` | Retrieve the authenticated user |
-| `/` | `/api/auth/*` | Better Auth authentication endpoints |
+| Method | Endpoint      | Purpose                              |
+| ------ | ------------- | ------------------------------------ |
+| GET    | `/health`     | Check API availability               |
+| GET    | `/health/db`  | Check database connectivity          |
+| GET    | `/api/me`     | Retrieve the authenticated user      |
+| `/`    | `/api/auth/*` | Better Auth authentication endpoints |
 
 ### Workspaces and members
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/workspaces` | Create a workspace |
-| GET | `/api/workspaces` | List the current user's workspaces |
-| POST | `/api/workspaces/:workspaceId/members` | Add a workspace member |
-| GET | `/api/workspaces/:workspaceId/members` | List workspace members |
+| Method | Endpoint                               | Purpose                            |
+| ------ | -------------------------------------- | ---------------------------------- |
+| POST   | `/api/workspaces`                      | Create a workspace                 |
+| GET    | `/api/workspaces`                      | List the current user's workspaces |
+| POST   | `/api/workspaces/:workspaceId/members` | Add a workspace member             |
+| GET    | `/api/workspaces/:workspaceId/members` | List workspace members             |
 
 ### Documents and collaboration
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/workspaces/:workspaceId/documents` | Create a document |
-| GET | `/api/workspaces/:workspaceId/documents` | List workspace documents |
-| GET | `/api/documents/:documentId` | Retrieve a document |
-| PATCH | `/api/documents/:documentId` | Update document fields or create a version snapshot |
-| DELETE | `/api/documents/:documentId` | Delete a document |
-| GET | `/api/documents/:documentId/versions` | List document versions |
-| POST | `/api/documents/:documentId/versions/:versionId/restore` | Restore a document version |
-| GET | `/api/collaboration/documents/:documentId/token` | Request a collaboration token |
+| Method | Endpoint                                                 | Purpose                                             |
+| ------ | -------------------------------------------------------- | --------------------------------------------------- |
+| POST   | `/api/workspaces/:workspaceId/documents`                 | Create a document                                   |
+| GET    | `/api/workspaces/:workspaceId/documents`                 | List workspace documents                            |
+| GET    | `/api/documents/:documentId`                             | Retrieve a document                                 |
+| PATCH  | `/api/documents/:documentId`                             | Update document fields or create a version snapshot |
+| DELETE | `/api/documents/:documentId`                             | Delete a document                                   |
+| GET    | `/api/documents/:documentId/versions`                    | List document versions                              |
+| POST   | `/api/documents/:documentId/versions/:versionId/restore` | Restore a document version                          |
+| GET    | `/api/collaboration/documents/:documentId/token`         | Request a collaboration token                       |
 
 Authenticated routes require a valid user session. Workspace membership and role permissions are checked by the relevant API handlers.
 
@@ -335,15 +334,15 @@ The CI workflow in `.github/workflows/ci.yml` provisions PostgreSQL, installs de
 
 ## Environment variable reference
 
-| Variable | Used by | Purpose |
-|---|---|---|
-| `DATABASE_URL` | API and database package | PostgreSQL connection string |
-| `BETTER_AUTH_URL` | API authentication | Base URL for Better Auth |
-| `BETTER_AUTH_SECRET` | Authentication and collaboration tokens | Signing secret |
-| `PORT` | API | HTTP port; defaults to `4000` |
-| `COLLAB_PORT` | Collaboration server | WebSocket port; defaults to `1234` |
-| `NEXT_PUBLIC_API_URL` | Web application | API base URL; defaults to `http://localhost:4000` |
-| `NEXT_PUBLIC_COLLAB_URL` | Web application | Collaboration WebSocket URL; defaults to `ws://localhost:1234` |
+| Variable                 | Used by                                 | Purpose                                                        |
+| ------------------------ | --------------------------------------- | -------------------------------------------------------------- |
+| `DATABASE_URL`           | API and database package                | PostgreSQL connection string                                   |
+| `BETTER_AUTH_URL`        | API authentication                      | Base URL for Better Auth                                       |
+| `BETTER_AUTH_SECRET`     | Authentication and collaboration tokens | Signing secret                                                 |
+| `PORT`                   | API                                     | HTTP port; defaults to `4000`                                  |
+| `COLLAB_PORT`            | Collaboration server                    | WebSocket port; defaults to `1234`                             |
+| `NEXT_PUBLIC_API_URL`    | Web application                         | API base URL; defaults to `http://localhost:4000`              |
+| `NEXT_PUBLIC_COLLAB_URL` | Web application                         | Collaboration WebSocket URL; defaults to `ws://localhost:1234` |
 
 Never commit local environment files, credentials, session tokens, or production secrets. Variables prefixed with `NEXT_PUBLIC_` are exposed to browser code and must not contain secrets.
 
