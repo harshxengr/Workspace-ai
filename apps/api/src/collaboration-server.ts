@@ -206,34 +206,18 @@ const collaborationServer = new Hocuspocus({
   },
 
   async onStoreDocument({ documentName, document }) {
-    const exists = await prisma.document.findUnique({
-      where: {
-        id: documentName,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!exists) {
-      return;
-    }
-
-    // Persist a single Tiptap JSON document, not an object
-    // containing every shared field in the Yjs document.
     const content = TiptapTransformer.fromYdoc(
       document,
       "default",
     ) as JSONContent;
 
-    // Capture both representations from the same in-memory state.
-    // The hash lets clients verify that their current content matches
-    // the content from this exact database save.
     const collaborationState = Uint8Array.from(Y.encodeStateAsUpdate(document));
 
     const contentHash = hashJsonContent(content);
 
-    await prisma.document.update({
+    // updateMany avoids a missing-record exception if deletion races with
+    // a queued collaboration save. A deleted document is never recreated.
+    const result = await prisma.document.updateMany({
       where: {
         id: documentName,
       },
@@ -243,8 +227,11 @@ const collaborationServer = new Hocuspocus({
       },
     });
 
-    // Acknowledge only after the PostgreSQL update succeeds.
-    // If the update throws, this confirmation is never sent.
+    if (result.count === 0) {
+      return;
+    }
+
+    // Confirm persistence only after a successful database update.
     document.broadcastStateless(
       JSON.stringify({
         type: PERSISTENCE_ACK_TYPE,
@@ -254,6 +241,54 @@ const collaborationServer = new Hocuspocus({
     );
   },
 });
+
+type CollaborationConnectionContext = {
+  workspaceId?: unknown;
+  user?: {
+    id?: unknown;
+  } | null;
+};
+
+/**
+ * Close this user's active collaboration connections in one workspace.
+ *
+ * Clients reconnecting after a role change are authenticated again and
+ * receive permissions based on their current database membership.
+ */
+export function closeWorkspaceMemberConnections(
+  workspaceId: string,
+  userId: string,
+): number {
+  let closedConnections = 0;
+
+  for (const document of collaborationServer.documents.values()) {
+    for (const connection of document.getConnections()) {
+      const context = connection.context as
+        CollaborationConnectionContext | undefined;
+
+      if (context?.workspaceId !== workspaceId || context.user?.id !== userId) {
+        continue;
+      }
+
+      connection.close();
+
+      // Also close the underlying WebSocket so the provider reconnects
+      // and authenticates again with its current workspace permissions.
+      connection.webSocket.close(4403, "Workspace permissions changed");
+
+      closedConnections += 1;
+    }
+  }
+
+  return closedConnections;
+}
+
+/**
+ * Close all active collaboration connections for a document.
+ */
+export function closeDocumentConnections(documentId: string): void {
+  collaborationServer.closeConnections(documentId);
+}
 
 // Crossws returns a connection per WebSocket peer.
 // Keep the Hocuspocus connection associated with its peer ID.

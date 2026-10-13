@@ -471,3 +471,185 @@ test("unauthenticated requests cannot add members", async () => {
 
   expect(response.status).toBe(401);
 });
+
+type ManagedMemberRole = "ADMIN" | "EDITOR" | "MEMBER" | "VIEWER";
+
+async function createManagedMember(
+  label: string,
+  role: ManagedMemberRole = "MEMBER",
+  targetWorkspaceId = workspaceId,
+): Promise<{ id: string; userId: string }> {
+  const email = await createTargetUser(label);
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { email },
+    select: { id: true },
+  });
+
+  const member = await prisma.workspaceMember.create({
+    data: {
+      workspaceId: targetWorkspaceId,
+      userId: user.id,
+      role,
+    },
+    select: {
+      id: true,
+      userId: true,
+    },
+  });
+
+  return member;
+}
+
+async function patchMemberRole(
+  actor: TestActor | null,
+  memberId: string,
+  role: string,
+  targetWorkspaceId = workspaceId,
+): Promise<Response> {
+  const headers = new Headers({
+    origin: FRONTEND_ORIGIN,
+    "content-type": "application/json",
+  });
+
+  if (actor) {
+    headers.set("cookie", actor.cookie);
+  }
+
+  return fetch(
+    `${apiBaseUrl}/api/workspaces/${targetWorkspaceId}/members/${memberId}`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ role }),
+    },
+  );
+}
+
+async function removeMember(
+  actor: TestActor | null,
+  memberId: string,
+  targetWorkspaceId = workspaceId,
+): Promise<Response> {
+  const headers = new Headers({
+    origin: FRONTEND_ORIGIN,
+  });
+
+  if (actor) {
+    headers.set("cookie", actor.cookie);
+  }
+
+  return fetch(
+    `${apiBaseUrl}/api/workspaces/${targetWorkspaceId}/members/${memberId}`,
+    {
+      method: "DELETE",
+      headers,
+    },
+  );
+}
+
+test("workspace owner can change a member role", async () => {
+  const target = await createManagedMember("role-change");
+  const response = await patchMemberRole(owner, target.id, "VIEWER");
+
+  expect(response.status).toBe(200);
+
+  const updated = await prisma.workspaceMember.findUniqueOrThrow({
+    where: { id: target.id },
+  });
+
+  expect(updated.role).toBe("VIEWER");
+});
+
+test("admin cannot change another member's role", async () => {
+  const target = await createManagedMember("admin-role-change");
+  const response = await patchMemberRole(admin, target.id, "EDITOR");
+
+  expect(response.status).toBe(403);
+
+  const unchanged = await prisma.workspaceMember.findUniqueOrThrow({
+    where: { id: target.id },
+  });
+
+  expect(unchanged.role).toBe("MEMBER");
+});
+
+test("workspace owner cannot change or remove the owner membership", async () => {
+  const ownerMembership = await prisma.workspaceMember.findUniqueOrThrow({
+    where: {
+      workspaceId_userId: {
+        workspaceId,
+        userId: owner.id,
+      },
+    },
+    select: { id: true },
+  });
+
+  const changeResponse = await patchMemberRole(
+    owner,
+    ownerMembership.id,
+    "ADMIN",
+  );
+
+  expect(changeResponse.status).toBe(403);
+
+  const removeResponse = await removeMember(owner, ownerMembership.id);
+
+  expect(removeResponse.status).toBe(403);
+});
+
+test("workspace owner can remove a non-owner member", async () => {
+  const target = await createManagedMember("owner-remove");
+  const response = await removeMember(owner, target.id);
+
+  expect(response.status).toBe(204);
+
+  const removed = await prisma.workspaceMember.findUnique({
+    where: { id: target.id },
+  });
+
+  expect(removed).toBeNull();
+});
+
+test("admin cannot remove a workspace member", async () => {
+  const target = await createManagedMember("admin-remove");
+  const response = await removeMember(admin, target.id);
+
+  expect(response.status).toBe(403);
+
+  const unchanged = await prisma.workspaceMember.findUnique({
+    where: { id: target.id },
+  });
+
+  expect(unchanged).not.toBeNull();
+});
+
+test("member management cannot target a membership from another workspace", async () => {
+  const target = await createManagedMember(
+    "foreign-workspace",
+    "MEMBER",
+    outsiderWorkspaceId,
+  );
+
+  const response = await patchMemberRole(owner, target.id, "VIEWER");
+
+  expect(response.status).toBe(404);
+
+  const unchanged = await prisma.workspaceMember.findUniqueOrThrow({
+    where: { id: target.id },
+  });
+
+  expect(unchanged.role).toBe("MEMBER");
+});
+
+test("unauthenticated requests cannot change or remove members", async () => {
+  const target = await createManagedMember("unauthenticated-management");
+
+  const changeResponse = await patchMemberRole(null, target.id, "VIEWER");
+
+  expect(changeResponse.status).toBe(401);
+
+  const removeResponse = await removeMember(null, target.id);
+
+  expect(removeResponse.status).toBe(401);
+});

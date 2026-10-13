@@ -11,7 +11,10 @@ import {
   canDeleteDocument,
   type WorkspaceRole,
 } from "../lib/document-permissions";
-import { restoreCollaborativeDocument } from "../collaboration-server";
+import {
+  closeDocumentConnections,
+  restoreCollaborativeDocument,
+} from "../collaboration-server";
 
 const router: Router = Router();
 
@@ -339,6 +342,9 @@ router.delete("/documents/:documentId", async (req, res) => {
     await prisma.document.delete({
       where: { id: documentId },
     });
+
+    // Evict clients connected to a document that no longer exists.
+    closeDocumentConnections(documentId);
 
     return res.status(204).send();
   } catch (error) {
