@@ -845,3 +845,101 @@ test("a connected editor cannot write after being downgraded to viewer", async (
     }
   }
 }, 30_000);
+
+test("REST content updates synchronize live clients, JSON content, and Yjs state", async () => {
+  if (!fixture) {
+    throw new Error("Integration fixture was not initialized.");
+  }
+
+  let client: TestClient | null = null;
+
+  try {
+    client = await connectClient(fixture.documentId, fixture.ownerToken);
+
+    const marker = `rest-content-update-${crypto.randomUUID()}`;
+
+    const content = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: marker,
+            },
+          ],
+        },
+      ],
+    };
+
+    const response = await fetch(
+      `${apiBaseUrl}/api/documents/${fixture.documentId}`,
+      {
+        method: "PATCH",
+        headers: {
+          cookie: restoreCookie,
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          content,
+          createVersion: true,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `REST document update failed: ${response.status} ${await response.text()}`,
+      );
+    }
+
+    const body = (await response.json()) as {
+      document: {
+        id: string;
+        content: unknown;
+        collaborationState?: unknown;
+      };
+    };
+
+    expect(body.document.id).toBe(fixture.documentId);
+
+    // The API response should not expose the binary Yjs state.
+    expect(body.document).not.toHaveProperty("collaborationState");
+
+    // Active collaborators should receive the REST update via Yjs.
+    await waitForDocumentText(client.document, marker);
+
+    const persisted = await prisma.document.findUnique({
+      where: { id: fixture.documentId },
+      select: {
+        content: true,
+        collaborationState: true,
+      },
+    });
+
+    expect(persisted).not.toBeNull();
+    expect(JSON.stringify(persisted?.content)).toContain(marker);
+    expect(persisted?.collaborationState?.byteLength).toBeGreaterThan(0);
+
+    // Independently decode the saved binary Yjs state.
+    const persistedText = await readPersistedText(fixture.documentId);
+
+    expect(persistedText).toContain(marker);
+
+    // A manual version snapshot should also contain the submitted content.
+    const latestVersion = await prisma.documentVersion.findFirst({
+      where: { documentId: fixture.documentId },
+      orderBy: { createdAt: "desc" },
+      select: { content: true },
+    });
+
+    expect(latestVersion).not.toBeNull();
+    expect(JSON.stringify(latestVersion?.content)).toContain(marker);
+  } finally {
+    if (client) {
+      disposeClient(client);
+    }
+  }
+}, 30_000);

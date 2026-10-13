@@ -11,9 +11,11 @@ import {
   canDeleteDocument,
   type WorkspaceRole,
 } from "../lib/document-permissions";
+
 import {
   closeDocumentConnections,
   restoreCollaborativeDocument,
+  updateCollaborativeDocument,
 } from "../collaboration-server";
 
 const router: Router = Router();
@@ -259,30 +261,44 @@ router.patch("/documents/:documentId", async (req, res) => {
       });
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const updatedDocument = await tx.document.update({
+    // Never write document content directly to PostgreSQL here.
+    // Route content updates through the active Hocuspocus/Yjs document.
+    if (content !== undefined) {
+      await updateCollaborativeDocument(
+        document.id,
+        content as JSONContent,
+        createVersion,
+      );
+    }
+
+    // The title is ordinary document metadata, so it can be updated
+    // directly without changing the Yjs document content.
+    if (title !== undefined) {
+      await prisma.document.update({
         where: { id: document.id },
-        data: {
-          ...(title !== undefined ? { title } : {}),
-          ...(content !== undefined
-            ? {
-                content: JSON.parse(JSON.stringify(content)),
-              }
-            : {}),
-        },
+        data: { title },
       });
+    }
 
-      if (createVersion && content !== undefined) {
-        await tx.documentVersion.create({
-          data: {
-            documentId: document.id,
-            content: JSON.parse(JSON.stringify(content)),
-          },
-        });
-      }
-
-      return updatedDocument;
+    // Return safe document fields without exposing the binary Yjs state.
+    const updated = await prisma.document.findUnique({
+      where: { id: document.id },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        createdAt: true,
+        updatedAt: true,
+        workspaceId: true,
+        authorId: true,
+      },
     });
+
+    if (!updated) {
+      return res.status(404).json({
+        error: "Document not found after update",
+      });
+    }
 
     return res.json({ document: updated });
   } catch (error) {

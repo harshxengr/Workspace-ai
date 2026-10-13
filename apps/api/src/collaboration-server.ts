@@ -497,6 +497,35 @@ export async function restoreCollaborativeDocument(
   }
 }
 
+/**
+ * Update document content through the active collaborative Yjs document.
+ *
+ * Both the JSON content and binary Yjs state are persisted and verified
+ * by restoreCollaborativeDocument before this function returns.
+ */
+export async function updateCollaborativeDocument(
+  documentId: string,
+  updatedContent: JSONContent,
+  createVersion: boolean,
+): Promise<void> {
+  // Replace content through Hocuspocus so connected clients receive
+  // the update and both database representations stay synchronized.
+  await restoreCollaborativeDocument(documentId, updatedContent, async () => {
+    // Do not create a version until the collaborative update succeeds.
+  });
+
+  // Preserve the existing API behavior: createVersion snapshots the
+  // submitted content after the collaborative update succeeds.
+  if (createVersion) {
+    await prisma.documentVersion.create({
+      data: {
+        documentId,
+        content: JSON.parse(JSON.stringify(updatedContent)),
+      },
+    });
+  }
+}
+
 export async function startCollaborationServer() {
   const port = Number(process.env.COLLAB_PORT ?? 1234);
 
