@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "build": "bun build src/index.ts src/collaboration-entry.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
+    "start:collaboration": "bun dist/collaboration-entry.js",
     "check-types": "tsc --noEmit",
     "test": "bun test src/lib",
     "test:integration": "bun test src/integration"
