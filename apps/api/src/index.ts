@@ -5,7 +5,6 @@ import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 
 import { auth, getWebOrigins, requireAuth } from "@workspace/auth";
-
 import { prisma } from "@workspace/db";
 
 import workspaceRouter from "./routes/workspaces";
@@ -23,7 +22,6 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) {
-        // Non-browser clients do not need CORS response headers.
         return callback(null, false);
       }
 
@@ -37,8 +35,7 @@ app.use(
   }),
 );
 
-// CORS controls browser access to responses; this middleware also rejects
-// requests carrying an explicitly untrusted Origin header.
+// Reject requests carrying an explicitly untrusted Origin header.
 app.use((req, res, next) => {
   const origin = req.get("origin");
 
@@ -98,9 +95,13 @@ app.use("/api", documentRouter);
 app.use("/api/collaboration", collaborationRouter);
 
 app.listen(PORT, () => {
-  console.log(`API running on http://localhost:${PORT}`);
+  console.log(`API listening on port ${PORT}`);
 });
 
-void startCollaborationServer().catch((error: unknown) => {
-  console.error("Failed to start collaboration server:", error);
-});
+// Local development runs both servers in one process.
+// Deployment can host the collaboration service separately.
+if (process.env.COLLAB_SERVER_DISABLED !== "true") {
+  void startCollaborationServer().catch((error: unknown) => {
+    console.error("Failed to start collaboration server:", error);
+  });
+}
