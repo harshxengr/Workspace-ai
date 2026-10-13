@@ -1,4 +1,3 @@
-
 import "dotenv/config";
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -10,10 +9,7 @@ import * as Y from "yjs";
 import { createCollaborationToken } from "@workspace/auth";
 import { prisma } from "@workspace/db";
 
-const API_DIRECTORY = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../..",
-);
+const API_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const COLLABORATION_FIELD = "default";
 const CONNECTION_TIMEOUT_MS = 12_000;
@@ -253,9 +249,7 @@ async function connectClient(
         clearTimeout(timeout);
       }
 
-      rejectSynced(
-        new Error(`Collaboration authentication failed: ${reason}`),
-      );
+      rejectSynced(new Error(`Collaboration authentication failed: ${reason}`));
     },
   });
 
@@ -272,9 +266,7 @@ async function connectClient(
   }
 }
 
-async function readPersistedText(
-  documentId: string,
-): Promise<string | null> {
+async function readPersistedText(documentId: string): Promise<string | null> {
   const record = await prisma.document.findUnique({
     where: { id: documentId },
     select: { collaborationState: true },
@@ -287,14 +279,9 @@ async function readPersistedText(
   const restoredDocument = new Y.Doc();
 
   try {
-    Y.applyUpdate(
-      restoredDocument,
-      new Uint8Array(record.collaborationState),
-    );
+    Y.applyUpdate(restoredDocument, new Uint8Array(record.collaborationState));
 
-    return extractXmlText(
-      restoredDocument.getXmlFragment(COLLABORATION_FIELD),
-    );
+    return extractXmlText(restoredDocument.getXmlFragment(COLLABORATION_FIELD));
   } finally {
     restoredDocument.destroy();
   }
@@ -316,27 +303,22 @@ async function waitForPersistedText(
     await sleep(250);
   }
 
-  throw new Error(
-    `Expected collaborative text was not persisted: ${expected}`,
-  );
+  throw new Error(`Expected collaborative text was not persisted: ${expected}`);
 }
 
 async function createRestoreSession(email: string): Promise<string> {
-  const response = await fetch(
-    `${apiBaseUrl}/api/auth/sign-up/email`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: "http://localhost:3000",
-      },
-      body: JSON.stringify({
-        name: "Integration Restorer",
-        email,
-        password: "Integration-Password-123!",
-      }),
+  const response = await fetch(`${apiBaseUrl}/api/auth/sign-up/email`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "http://localhost:3000",
     },
-  );
+    body: JSON.stringify({
+      name: "Integration Restorer",
+      email,
+      password: "Integration-Password-123!",
+    }),
+  });
 
   if (!response.ok) {
     throw new Error(
@@ -523,227 +505,276 @@ afterAll(async () => {
   }
 }, 30_000);
 
-test(
-  "synchronizes editor clients, rejects viewer writes, restores through the API, and survives restart",
-  async () => {
-    if (!fixture) {
-      throw new Error("Integration fixture was not initialized.");
-    }
+test("synchronizes editor clients, rejects viewer writes, restores through the API, and survives restart", async () => {
+  if (!fixture) {
+    throw new Error("Integration fixture was not initialized.");
+  }
 
-    const ownerClient = await connectClient(
-      fixture.documentId,
-      fixture.ownerToken,
-    );
+  const ownerClient = await connectClient(
+    fixture.documentId,
+    fixture.ownerToken,
+  );
 
-    const viewerClient = await connectClient(
-      fixture.documentId,
-      fixture.viewerToken,
-    );
+  const viewerClient = await connectClient(
+    fixture.documentId,
+    fixture.viewerToken,
+  );
 
-    const ownerFragment = ownerClient.document.getXmlFragment(
-      COLLABORATION_FIELD,
-    );
-    const viewerFragment = viewerClient.document.getXmlFragment(
-      COLLABORATION_FIELD,
-    );
+  const ownerFragment =
+    ownerClient.document.getXmlFragment(COLLABORATION_FIELD);
+  const viewerFragment =
+    viewerClient.document.getXmlFragment(COLLABORATION_FIELD);
 
-    const originalMarker = `owner-write-${crypto.randomUUID()}`;
-    appendParagraph(ownerClient.document, originalMarker);
+  const originalMarker = `owner-write-${crypto.randomUUID()}`;
+  appendParagraph(ownerClient.document, originalMarker);
 
-    await waitForDocumentText(viewerClient.document, originalMarker);
-    expect(extractXmlText(viewerFragment)).toContain(originalMarker);
+  await waitForDocumentText(viewerClient.document, originalMarker);
+  expect(extractXmlText(viewerFragment)).toContain(originalMarker);
 
-    await waitForPersistedText(fixture.documentId, originalMarker);
+  await waitForPersistedText(fixture.documentId, originalMarker);
 
-    const forbiddenText = `viewer-write-${crypto.randomUUID()}`;
-    appendParagraph(viewerClient.document, forbiddenText);
+  const forbiddenText = `viewer-write-${crypto.randomUUID()}`;
+  appendParagraph(viewerClient.document, forbiddenText);
 
-    await sleep(5500);
+  await sleep(5500);
 
-    expect(extractXmlText(ownerFragment)).not.toContain(forbiddenText);
+  expect(extractXmlText(ownerFragment)).not.toContain(forbiddenText);
 
-    const persistedBeforeRestore = await readPersistedText(
-      fixture.documentId,
-    );
+  const persistedBeforeRestore = await readPersistedText(fixture.documentId);
 
-    expect(persistedBeforeRestore).toContain(originalMarker);
-    expect(persistedBeforeRestore).not.toContain(forbiddenText);
+  expect(persistedBeforeRestore).toContain(originalMarker);
+  expect(persistedBeforeRestore).not.toContain(forbiddenText);
 
-    disposeClient(viewerClient);
+  disposeClient(viewerClient);
 
-    const restoredMarker = `restored-snapshot-${crypto.randomUUID()}`;
+  const restoredMarker = `restored-snapshot-${crypto.randomUUID()}`;
 
-    const restoredContent = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: restoredMarker,
-            },
-          ],
-        },
-      ],
-    };
-
-    const version = await prisma.documentVersion.create({
-      data: {
-        documentId: fixture.documentId,
-        content: restoredContent,
-      },
-    });
-
-    const restoreResponse = await fetch(
-      `${apiBaseUrl}/api/documents/${fixture.documentId}/versions/${version.id}/restore`,
+  const restoredContent = {
+    type: "doc",
+    content: [
       {
-        method: "POST",
-        headers: {
-          cookie: restoreCookie,
-          origin: "http://localhost:3000",
-        },
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: restoredMarker,
+          },
+        ],
       },
+    ],
+  };
+
+  const version = await prisma.documentVersion.create({
+    data: {
+      documentId: fixture.documentId,
+      content: restoredContent,
+    },
+  });
+
+  const restoreResponse = await fetch(
+    `${apiBaseUrl}/api/documents/${fixture.documentId}/versions/${version.id}/restore`,
+    {
+      method: "POST",
+      headers: {
+        cookie: restoreCookie,
+        origin: "http://localhost:3000",
+      },
+    },
+  );
+
+  if (!restoreResponse.ok) {
+    throw new Error(
+      `Restore route failed: ${restoreResponse.status} ${await restoreResponse.text()}`,
+    );
+  }
+
+  const restoreBody = (await restoreResponse.json()) as {
+    document: {
+      id: string;
+      content: unknown;
+    };
+  };
+
+  expect(restoreBody.document.id).toBe(fixture.documentId);
+
+  await waitForDocumentText(ownerClient.document, restoredMarker);
+
+  const liveTextAfterRestore = extractXmlText(ownerFragment);
+
+  expect(liveTextAfterRestore).toContain(restoredMarker);
+  expect(liveTextAfterRestore).not.toContain(originalMarker);
+  expect(liveTextAfterRestore).not.toContain(forbiddenText);
+
+  await waitForPersistedText(fixture.documentId, restoredMarker);
+
+  const persistedAfterRestore = await prisma.document.findUnique({
+    where: { id: fixture.documentId },
+    select: {
+      content: true,
+      collaborationState: true,
+    },
+  });
+
+  expect(persistedAfterRestore).not.toBeNull();
+  expect(persistedAfterRestore?.collaborationState?.byteLength).toBeGreaterThan(
+    0,
+  );
+
+  const persistedText = await readPersistedText(fixture.documentId);
+
+  expect(persistedText).toContain(restoredMarker);
+  expect(persistedText).not.toContain(originalMarker);
+  expect(persistedText).not.toContain(forbiddenText);
+
+  disposeClient(ownerClient);
+  await sleep(250);
+  await stopApiServer();
+  await startApiServer();
+
+  const reconnectedOwner = await connectClient(
+    fixture.documentId,
+    fixture.ownerToken,
+  );
+
+  const reconnectedText = extractXmlText(
+    reconnectedOwner.document.getXmlFragment(COLLABORATION_FIELD),
+  );
+
+  expect(reconnectedText).toContain(restoredMarker);
+  expect(reconnectedText).not.toContain(originalMarker);
+}, 120_000);
+
+test("concurrent edits from two authorized editors converge and persist", async () => {
+  if (!fixture) {
+    throw new Error("Integration fixture was not initialized.");
+  }
+
+  let ownerClient: TestClient | null = null;
+  let editorClient: TestClient | null = null;
+
+  try {
+    ownerClient = await connectClient(fixture.documentId, fixture.ownerToken);
+
+    editorClient = await connectClient(fixture.documentId, fixture.editorToken);
+
+    const ownerMarker = `concurrent-owner-${crypto.randomUUID()}`;
+    const editorMarker = `concurrent-editor-${crypto.randomUUID()}`;
+
+    // Generate independent local transactions close together.
+    // The server must merge both CRDT updates without losing either.
+    await Promise.all([
+      Promise.resolve().then(() => {
+        appendParagraph(ownerClient!.document, ownerMarker);
+      }),
+      Promise.resolve().then(() => {
+        appendParagraph(editorClient!.document, editorMarker);
+      }),
+    ]);
+
+    // Both clients must observe both concurrent changes.
+    await waitForDocumentText(ownerClient.document, ownerMarker);
+    await waitForDocumentText(ownerClient.document, editorMarker);
+    await waitForDocumentText(editorClient.document, ownerMarker);
+    await waitForDocumentText(editorClient.document, editorMarker);
+
+    const ownerText = extractXmlText(
+      ownerClient.document.getXmlFragment(COLLABORATION_FIELD),
+    );
+    const editorText = extractXmlText(
+      editorClient.document.getXmlFragment(COLLABORATION_FIELD),
     );
 
-    if (!restoreResponse.ok) {
-      throw new Error(
-        `Restore route failed: ${restoreResponse.status} ${await restoreResponse.text()}`,
-      );
-    }
+    expect(ownerText).toContain(ownerMarker);
+    expect(ownerText).toContain(editorMarker);
+    expect(editorText).toContain(ownerMarker);
+    expect(editorText).toContain(editorMarker);
 
-    const restoreBody = (await restoreResponse.json()) as {
-      document: {
-        id: string;
-        content: unknown;
-      };
-    };
+    // A converged Yjs document should yield identical shared text on
+    // both clients, even if the CRDT decides the paragraph ordering.
+    expect(ownerText).toBe(editorText);
 
-    expect(restoreBody.document.id).toBe(fixture.documentId);
-
-    await waitForDocumentText(ownerClient.document, restoredMarker);
-
-    const liveTextAfterRestore = extractXmlText(ownerFragment);
-
-    expect(liveTextAfterRestore).toContain(restoredMarker);
-    expect(liveTextAfterRestore).not.toContain(originalMarker);
-    expect(liveTextAfterRestore).not.toContain(forbiddenText);
-
-    await waitForPersistedText(fixture.documentId, restoredMarker);
-
-    const persistedAfterRestore = await prisma.document.findUnique({
-      where: { id: fixture.documentId },
-      select: {
-        content: true,
-        collaborationState: true,
-      },
-    });
-
-    expect(persistedAfterRestore).not.toBeNull();
-    expect(
-      persistedAfterRestore?.collaborationState?.byteLength,
-    ).toBeGreaterThan(0);
+    await waitForPersistedText(fixture.documentId, ownerMarker);
+    await waitForPersistedText(fixture.documentId, editorMarker);
 
     const persistedText = await readPersistedText(fixture.documentId);
 
-    expect(persistedText).toContain(restoredMarker);
-    expect(persistedText).not.toContain(originalMarker);
-    expect(persistedText).not.toContain(forbiddenText);
-
-    disposeClient(ownerClient);
-    await sleep(250);
-    await stopApiServer();
-    await startApiServer();
-
-    const reconnectedOwner = await connectClient(
-      fixture.documentId,
-      fixture.ownerToken,
-    );
-
-    const reconnectedText = extractXmlText(
-      reconnectedOwner.document.getXmlFragment(COLLABORATION_FIELD),
-    );
-
-    expect(reconnectedText).toContain(restoredMarker);
-    expect(reconnectedText).not.toContain(originalMarker);
-  },
-  120_000,
-);
-
-test(
-  "concurrent edits from two authorized editors converge and persist",
-  async () => {
-    if (!fixture) {
-      throw new Error("Integration fixture was not initialized.");
+    expect(persistedText).toContain(ownerMarker);
+    expect(persistedText).toContain(editorMarker);
+    expect(persistedText).toBe(ownerText);
+  } finally {
+    if (editorClient) {
+      disposeClient(editorClient);
     }
 
-    let ownerClient: TestClient | null = null;
-    let editorClient: TestClient | null = null;
-
-    try {
-      ownerClient = await connectClient(
-        fixture.documentId,
-        fixture.ownerToken,
-      );
-
-      editorClient = await connectClient(
-        fixture.documentId,
-        fixture.editorToken,
-      );
-
-      const ownerMarker = `concurrent-owner-${crypto.randomUUID()}`;
-      const editorMarker = `concurrent-editor-${crypto.randomUUID()}`;
-
-      // Generate independent local transactions close together.
-      // The server must merge both CRDT updates without losing either.
-      await Promise.all([
-        Promise.resolve().then(() => {
-          appendParagraph(ownerClient!.document, ownerMarker);
-        }),
-        Promise.resolve().then(() => {
-          appendParagraph(editorClient!.document, editorMarker);
-        }),
-      ]);
-
-      // Both clients must observe both concurrent changes.
-      await waitForDocumentText(ownerClient.document, ownerMarker);
-      await waitForDocumentText(ownerClient.document, editorMarker);
-      await waitForDocumentText(editorClient.document, ownerMarker);
-      await waitForDocumentText(editorClient.document, editorMarker);
-
-      const ownerText = extractXmlText(ownerClient.document.getXmlFragment(
-        COLLABORATION_FIELD,
-      ));
-      const editorText = extractXmlText(editorClient.document.getXmlFragment(
-        COLLABORATION_FIELD,
-      ));
-
-      expect(ownerText).toContain(ownerMarker);
-      expect(ownerText).toContain(editorMarker);
-      expect(editorText).toContain(ownerMarker);
-      expect(editorText).toContain(editorMarker);
-
-      // A converged Yjs document should yield identical shared text on
-      // both clients, even if the CRDT decides the paragraph ordering.
-      expect(ownerText).toBe(editorText);
-
-      await waitForPersistedText(fixture.documentId, ownerMarker);
-      await waitForPersistedText(fixture.documentId, editorMarker);
-
-      const persistedText = await readPersistedText(fixture.documentId);
-
-      expect(persistedText).toContain(ownerMarker);
-      expect(persistedText).toContain(editorMarker);
-      expect(persistedText).toBe(ownerText);
-    } finally {
-      if (editorClient) {
-        disposeClient(editorClient);
-      }
-
-      if (ownerClient) {
-        disposeClient(ownerClient);
-      }
+    if (ownerClient) {
+      disposeClient(ownerClient);
     }
-  },
-  60_000,
-);
+  }
+}, 60_000);
+
+test("a connected editor cannot write after being downgraded to viewer", async () => {
+  if (!fixture) {
+    throw new Error("Integration fixture was not initialized.");
+  }
+
+  let ownerClient: TestClient | null = null;
+  let editorClient: TestClient | null = null;
+
+  try {
+    ownerClient = await connectClient(fixture.documentId, fixture.ownerToken);
+
+    editorClient = await connectClient(fixture.documentId, fixture.editorToken);
+
+    const editorMembership = await prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId: fixture.workspaceId,
+        role: "EDITOR",
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    if (!editorMembership) {
+      throw new Error("The integration editor membership was not found.");
+    }
+
+    await prisma.workspaceMember.update({
+      where: {
+        workspaceId_userId: {
+          workspaceId: fixture.workspaceId,
+          userId: editorMembership.userId,
+        },
+      },
+      data: {
+        role: "VIEWER",
+      },
+    });
+
+    const forbiddenMarker = `revoked-write-${crypto.randomUUID()}`;
+
+    // The WebSocket was authenticated before the role changed.
+    // Its next submitted update must be checked against current permissions.
+    appendParagraph(editorClient.document, forbiddenMarker);
+
+    // Allow time for synchronization and the persistence debounce.
+    await sleep(6500);
+
+    const ownerText = extractXmlText(
+      ownerClient.document.getXmlFragment(COLLABORATION_FIELD),
+    );
+
+    const persistedText = await readPersistedText(fixture.documentId);
+
+    expect(ownerText).not.toContain(forbiddenMarker);
+    expect(persistedText ?? "").not.toContain(forbiddenMarker);
+  } finally {
+    if (editorClient) {
+      disposeClient(editorClient);
+    }
+
+    if (ownerClient) {
+      disposeClient(ownerClient);
+    }
+  }
+}, 30_000);

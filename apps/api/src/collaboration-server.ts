@@ -102,6 +102,7 @@ async function authorizeConnection(
       name: claims.name,
       color: claims.color,
     },
+    workspaceId: document.workspaceId,
     workspaceRole: membership.role,
   };
 }
@@ -116,6 +117,48 @@ const collaborationServer = new Hocuspocus({
     }
 
     return authorizeConnection(token, documentName, connectionConfig);
+  },
+
+  async beforeHandleMessage({ documentName, context, connection }) {
+    const userId = context?.user?.id;
+    const workspaceId = context?.workspaceId;
+
+    if (typeof userId !== "string" || typeof workspaceId !== "string") {
+      throw new Error("Collaboration authorization context is missing");
+    }
+
+    const document = await prisma.document.findUnique({
+      where: {
+        id: documentName,
+      },
+      select: {
+        workspaceId: true,
+      },
+    });
+
+    if (!document || document.workspaceId !== workspaceId) {
+      throw new Error("Document access is no longer available");
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId,
+        },
+      },
+      select: {
+        role: true,
+      },
+    });
+
+    if (!membership) {
+      throw new Error("Workspace membership is no longer available");
+    }
+
+    // Refresh permissions without disconnecting a user who still has
+    // read access. Hocuspocus rejects document updates while read-only.
+    connection.readOnly = !canEditDocument(membership.role as WorkspaceRole);
   },
 
   async beforeHandleAwareness({ states, context }) {

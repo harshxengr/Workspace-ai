@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -111,12 +110,9 @@ export default function VersionHistory({
         document: {
           content: JSONContent | null;
         };
-      }>(
-        `/api/documents/${documentId}/versions/${version.id}/restore`,
-        {
-          method: "POST",
-        },
-      );
+      }>(`/api/documents/${documentId}/versions/${version.id}/restore`, {
+        method: "POST",
+      });
 
       if (!result.document.content) {
         throw new Error("The restored document has no content.");
@@ -183,8 +179,8 @@ export default function VersionHistory({
         <div className="mt-4 rounded border p-4 text-sm">
           <p>No snapshots yet.</p>
           <p className="mt-1 text-muted-foreground">
-            Save a snapshot from the editor to preserve a version you
-            can restore later.
+            Save a snapshot from the editor to preserve a version you can
+            restore later.
           </p>
         </div>
       )}

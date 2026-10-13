@@ -64,9 +64,7 @@ export default function WorkspacePage() {
 
         const documentResult = await apiFetch<{
           documents: Document[];
-        }>(
-          `/api/workspaces/${foundWorkspace.id}/documents`,
-        );
+        }>(`/api/workspaces/${foundWorkspace.id}/documents`);
 
         if (cancelled) return;
 
@@ -76,9 +74,7 @@ export default function WorkspacePage() {
 
         if (!cancelled) {
           setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load workspace",
+            err instanceof Error ? err.message : "Failed to load workspace",
           );
         }
       } finally {
@@ -111,10 +107,7 @@ export default function WorkspacePage() {
         }),
       });
 
-      setDocuments((current) => [
-        result.document,
-        ...current,
-      ]);
+      setDocuments((current) => [result.document, ...current]);
 
       router.push(
         `/workspaces/${workspace.slug}/documents/${result.document.id}`,
@@ -123,9 +116,7 @@ export default function WorkspacePage() {
       console.error(err);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to create document",
+        err instanceof Error ? err.message : "Failed to create document",
       );
     } finally {
       setCreating(false);
@@ -166,9 +157,7 @@ export default function WorkspacePage() {
 
       setDocuments((current) =>
         current.map((document) =>
-          document.id === documentId
-            ? result.document
-            : document,
+          document.id === documentId ? result.document : document,
         ),
       );
 
@@ -177,9 +166,7 @@ export default function WorkspacePage() {
       console.error(err);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to rename document",
+        err instanceof Error ? err.message : "Failed to rename document",
       );
     } finally {
       setSavingTitleId(null);
@@ -189,9 +176,7 @@ export default function WorkspacePage() {
   async function deleteDocument(documentId: string) {
     if (!workspace) return;
 
-    const document = documents.find(
-      (item) => item.id === documentId,
-    );
+    const document = documents.find((item) => item.id === documentId);
 
     if (!document) return;
 
@@ -216,9 +201,7 @@ export default function WorkspacePage() {
       console.error(err);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to delete document",
+        err instanceof Error ? err.message : "Failed to delete document",
       );
     } finally {
       setDeletingId(null);
@@ -226,19 +209,13 @@ export default function WorkspacePage() {
   }
 
   if (loading) {
-    return (
-      <main className="min-h-screen p-8">
-        Loading workspace...
-      </main>
-    );
+    return <main className="min-h-screen p-8">Loading workspace...</main>;
   }
 
   if (error && !workspace) {
     return (
       <main className="min-h-screen p-8">
-        <h1 className="text-2xl font-bold">
-          Workspace error
-        </h1>
+        <h1 className="text-2xl font-bold">Workspace error</h1>
 
         <p className="mt-2">{error}</p>
       </main>
@@ -246,39 +223,26 @@ export default function WorkspacePage() {
   }
 
   if (!workspace) {
-    return (
-      <main className="min-h-screen p-8">
-        Workspace not found.
-      </main>
-    );
+    return <main className="min-h-screen p-8">Workspace not found.</main>;
   }
 
   return (
     <main className="flex min-h-screen">
       <aside className="w-80 border-r p-4">
         <div className="mb-6">
-          <Link
-            href="/dashboard"
-            className="text-sm underline"
-          >
+          <Link href="/dashboard" className="text-sm underline">
             ← Dashboard
           </Link>
 
-          <h1 className="mt-4 text-xl font-bold">
-            {workspace.name}
-          </h1>
+          <h1 className="mt-4 text-xl font-bold">{workspace.name}</h1>
 
           {workspace.description && (
-            <p className="mt-1 text-sm">
-              {workspace.description}
-            </p>
+            <p className="mt-1 text-sm">{workspace.description}</p>
           )}
         </div>
 
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">
-            Documents
-          </h2>
+          <h2 className="font-semibold">Documents</h2>
 
           <button
             type="button"
@@ -297,18 +261,13 @@ export default function WorkspacePage() {
             const isDeleting = deletingId === document.id;
 
             return (
-              <div
-                key={document.id}
-                className="rounded border p-2"
-              >
+              <div key={document.id} className="rounded border p-2">
                 {isEditing ? (
                   <div className="space-y-2">
                     <input
                       autoFocus
                       value={editingTitle}
-                      onChange={(event) =>
-                        setEditingTitle(event.target.value)
-                      }
+                      onChange={(event) => setEditingTitle(event.target.value)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
@@ -327,9 +286,7 @@ export default function WorkspacePage() {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() =>
-                          void saveRename(document.id)
-                        }
+                        onClick={() => void saveRename(document.id)}
                         disabled={isSaving}
                         className="rounded border px-2 py-1 text-xs"
                       >
@@ -366,9 +323,7 @@ export default function WorkspacePage() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        void deleteDocument(document.id)
-                      }
+                      onClick={() => void deleteDocument(document.id)}
                       disabled={isDeleting}
                       className="text-sm"
                       title="Delete document"
@@ -382,33 +337,23 @@ export default function WorkspacePage() {
           })}
 
           {documents.length === 0 && (
-            <p className="text-sm">
-              No documents yet.
-            </p>
+            <p className="text-sm">No documents yet.</p>
           )}
         </div>
 
         {error && (
-          <div className="mt-4 rounded border p-3 text-sm">
-            {error}
-          </div>
+          <div className="mt-4 rounded border p-3 text-sm">{error}</div>
         )}
       </aside>
 
       <section className="flex-1 p-8">
-        <h2 className="text-3xl font-bold">
-          {workspace.name}
-        </h2>
+        <h2 className="text-3xl font-bold">{workspace.name}</h2>
 
-        <p className="mt-2">
-          Select a document or create a new one.
-        </p>
+        <p className="mt-2">Select a document or create a new one.</p>
 
         {documents.length > 0 && (
           <div className="mt-8">
-            <h3 className="text-xl font-semibold">
-              Recent documents
-            </h3>
+            <h3 className="text-xl font-semibold">Recent documents</h3>
 
             <div className="mt-4 space-y-2">
               {documents.map((document) => (
@@ -417,15 +362,10 @@ export default function WorkspacePage() {
                   href={`/workspaces/${workspace.slug}/documents/${document.id}`}
                   className="block rounded border p-4"
                 >
-                  <div className="font-medium">
-                    {document.title}
-                  </div>
+                  <div className="font-medium">{document.title}</div>
 
                   <div className="mt-1 text-sm">
-                    Updated{" "}
-                    {new Date(
-                      document.updatedAt,
-                    ).toLocaleString()}
+                    Updated {new Date(document.updatedAt).toLocaleString()}
                   </div>
                 </Link>
               ))}

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -35,7 +34,9 @@ export default function LoginPage() {
       router.replace("/dashboard");
       router.refresh();
     } catch {
-      setError("Unable to sign in. Please check your connection and try again.");
+      setError(
+        "Unable to sign in. Please check your connection and try again.",
+      );
     } finally {
       setLoading(false);
     }

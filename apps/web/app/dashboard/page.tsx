@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -207,9 +206,7 @@ export default function DashboardPage() {
               Welcome{user.name ? `, ${user.name}` : ""}
             </h1>
 
-            <p className="mt-2 text-sm text-muted-foreground">
-              {user.email}
-            </p>
+            <p className="mt-2 text-sm text-muted-foreground">{user.email}</p>
           </div>
 
           <button
@@ -244,10 +241,7 @@ export default function DashboardPage() {
           </div>
 
           {loadError && (
-            <div
-              role="alert"
-              className="mt-5 rounded-md border p-4 text-sm"
-            >
+            <div role="alert" className="mt-5 rounded-md border p-4 text-sm">
               <p>{loadError}</p>
 
               <div className="mt-3 flex flex-wrap gap-3">
@@ -275,9 +269,7 @@ export default function DashboardPage() {
               onSubmit={createWorkspace}
               className="mt-6 space-y-4 rounded-xl border p-5"
             >
-              <h3 className="text-lg font-semibold">
-                Create a workspace
-              </h3>
+              <h3 className="text-lg font-semibold">Create a workspace</h3>
 
               <div>
                 <label
