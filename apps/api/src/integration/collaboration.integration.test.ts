@@ -100,6 +100,52 @@ async function waitForDocumentText(
   throw new Error(`Timed out waiting for synchronized text: ${expected}`);
 }
 
+async function waitForProviderEvent(
+  provider: HocuspocusProvider,
+  eventName: "disconnect" | "synced",
+  timeoutMs = CONNECTION_TIMEOUT_MS,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      provider.off("disconnect", onDisconnect);
+      provider.off("synced", onSynced);
+    };
+
+    const onDisconnect = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onSynced = (event: { state: boolean }) => {
+      // Ignore the unsynced event; wait for completed synchronization.
+      if (!event.state) {
+        return;
+      }
+
+      cleanup();
+      resolve();
+    };
+
+    timeout = setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          `Timed out waiting for collaboration provider event: ${eventName}`,
+        ),
+      );
+    }, timeoutMs);
+
+    if (eventName === "disconnect") {
+      provider.on("disconnect", onDisconnect);
+    } else {
+      provider.on("synced", onSynced);
+    }
+  });
+}
+
 function getFreePort(): number {
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -731,6 +777,7 @@ test("a connected editor cannot write after being downgraded to viewer", async (
         role: "EDITOR",
       },
       select: {
+        id: true,
         userId: true,
       },
     });
@@ -739,22 +786,42 @@ test("a connected editor cannot write after being downgraded to viewer", async (
       throw new Error("The integration editor membership was not found.");
     }
 
-    await prisma.workspaceMember.update({
-      where: {
-        workspaceId_userId: {
-          workspaceId: fixture.workspaceId,
-          userId: editorMembership.userId,
+    // Subscribe before the role change so we cannot miss the close/reconnect
+    // cycle caused by the member-management endpoint.
+    const disconnectPromise = waitForProviderEvent(
+      editorClient.provider,
+      "disconnect",
+    );
+    const reconnectPromise = waitForProviderEvent(
+      editorClient.provider,
+      "synced",
+    );
+
+    const response = await fetch(
+      `${apiBaseUrl}/api/workspaces/${fixture.workspaceId}/members/${editorMembership.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          cookie: restoreCookie,
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
         },
+        body: JSON.stringify({
+          role: "VIEWER",
+        }),
       },
-      data: {
-        role: "VIEWER",
-      },
-    });
+    );
+
+    expect(response.status).toBe(200);
+
+    // The old connection must close and then synchronize with the new
+    // read-only permissions loaded from the database.
+    await Promise.all([disconnectPromise, reconnectPromise]);
 
     const forbiddenMarker = `revoked-write-${crypto.randomUUID()}`;
 
-    // The WebSocket was authenticated before the role changed.
-    // Its next submitted update must be checked against current permissions.
+    // The provider should reconnect with read-only permissions and must
+    // not propagate new edits to the owner's document.
     appendParagraph(editorClient.document, forbiddenMarker);
 
     // Allow time for synchronization and the persistence debounce.
