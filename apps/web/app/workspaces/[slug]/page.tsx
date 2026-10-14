@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "../../lib/api";
+import WorkspaceInvitationsPanel from "../../components/workspace-invitations-panel";
 
 type Workspace = {
   id: string;
@@ -793,6 +794,11 @@ export default function WorkspacePage() {
             </div>
           </div>
         </section>
+
+        <WorkspaceInvitationsPanel
+          workspaceId={workspace.id}
+          currentRole={currentRole}
+        />
       </section>
     </main>
   );

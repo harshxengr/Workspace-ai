@@ -16,46 +16,48 @@ enum WorkspaceRole {
 }
 
 model User {
-  id            String            @id @default(uuid())
-  email         String            @unique
+  id            String   @id @default(uuid())
+  email         String   @unique
   name          String?
   image         String?
-  emailVerified Boolean           @default(false)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  workspaces    WorkspaceMember[]
-  documents     Document[]        @relation("DocumentAuthor")
-  sessions      Session[]
-  accounts      Account[]
+  workspaces               WorkspaceMember[]
+  documents                Document[]            @relation("DocumentAuthor")
+  sessions                 Session[]
+  accounts                 Account[]
+  sentWorkspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitationSender")
 
   @@map("users")
 }
 
 model Workspace {
-  id          String            @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
-  slug        String            @unique
+  slug        String   @unique
   description String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   members     WorkspaceMember[]
   documents   Document[]
+  invitations WorkspaceInvitation[]
 
   @@map("workspaces")
 }
 
 model WorkspaceMember {
-  id          String        @id @default(uuid())
-  role        WorkspaceRole @default(MEMBER)
-  createdAt   DateTime      @default(now())
+  id        String        @id @default(uuid())
+  role      WorkspaceRole @default(MEMBER)
+  createdAt DateTime      @default(now())
 
   userId      String
   workspaceId String
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -64,19 +66,19 @@ model WorkspaceMember {
 }
 
 model Document {
-  id          String            @id @default(uuid())
-  title       String
-  content     Json?
+  id                 String   @id @default(uuid())
+  title              String
+  content            Json?
   collaborationState Bytes?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   workspaceId String
   authorId    String
 
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  author      User              @relation("DocumentAuthor", fields: [authorId], references: [id])
-  versions    DocumentVersion[]
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author    User              @relation("DocumentAuthor", fields: [authorId], references: [id])
+  versions  DocumentVersion[]
 
   @@index([workspaceId])
   @@index([authorId])
@@ -84,9 +86,9 @@ model Document {
 }
 
 model DocumentVersion {
-  id         String   @id @default(uuid())
-  content    Json
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  content   Json
+  createdAt DateTime @default(now())
 
   documentId String
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -142,4 +144,26 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+model WorkspaceInvitation {
+  id         String        @id @default(uuid())
+  email      String
+  role       WorkspaceRole @default(MEMBER)
+  tokenHash  String        @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  workspaceId     String
+  invitedByUserId String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation("WorkspaceInvitationSender", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, email])
+  @@index([email, expiresAt])
+  @@map("workspace_invitations")
 }
