@@ -106,6 +106,7 @@ async function startApiServer(): Promise<void> {
   initializePorts();
 
   const childEnv: Record<string, string> = {};
+  childEnv.APP_BASE_URL = FRONTEND_ORIGIN;
 
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) {
@@ -152,8 +153,12 @@ async function stopApiServer(): Promise<void> {
   }
 }
 
-async function createAuthUser(label: string): Promise<TestActor> {
-  const email = `members-${label}-${crypto.randomUUID()}@example.test`;
+async function createAuthUser(
+  label: string,
+  suppliedEmail?: string,
+): Promise<TestActor> {
+  const email =
+    suppliedEmail ?? `members-${label}-${crypto.randomUUID()}@example.test`;
 
   const response = await fetch(`${apiBaseUrl}/api/auth/sign-up/email`, {
     method: "POST",
@@ -652,4 +657,195 @@ test("unauthenticated requests cannot change or remove members", async () => {
   const removeResponse = await removeMember(null, target.id);
 
   expect(removeResponse.status).toBe(401);
+});
+
+async function postInvitationForTest(
+  actor: TestActor,
+  email: string,
+  role = "MEMBER",
+): Promise<Response> {
+  return fetch(`${apiBaseUrl}/api/workspaces/${workspaceId}/invitations`, {
+    method: "POST",
+    headers: {
+      cookie: actor.cookie,
+      origin: FRONTEND_ORIGIN,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+async function getPreviewInvitation(response: Response): Promise<{
+  invitation: { id: string; email: string; role: string };
+  inviteUrl: string;
+  token: string;
+}> {
+  const body = (await response.json()) as {
+    invitation: { id: string; email: string; role: string };
+    delivery: string;
+    inviteUrl?: string;
+  };
+
+  expect(body.delivery).toBe("preview");
+  expect(body.inviteUrl).toBeDefined();
+
+  const inviteUrl = body.inviteUrl!;
+  const token = new URL(inviteUrl).pathname.split("/").filter(Boolean).at(-1);
+
+  if (!token) {
+    throw new Error("The invitation preview URL did not contain a token.");
+  }
+
+  return {
+    invitation: body.invitation,
+    inviteUrl,
+    token,
+  };
+}
+
+test("an invited user can accept a single-use invitation", async () => {
+  const invitedEmail = `invited-${crypto.randomUUID()}@example.test`;
+
+  const createResponse = await postInvitationForTest(
+    owner,
+    invitedEmail,
+    "EDITOR",
+  );
+
+  expect(createResponse.status).toBe(201);
+
+  const preview = await getPreviewInvitation(createResponse);
+
+  const detailsResponse = await fetch(
+    `${apiBaseUrl}/api/invitations/${preview.token}`,
+  );
+
+  expect(detailsResponse.status).toBe(200);
+
+  const detailsBody = (await detailsResponse.json()) as {
+    invitation: {
+      email: string;
+      role: string;
+      workspace: { slug: string };
+    };
+  };
+
+  expect(detailsBody.invitation.email).toBe(invitedEmail);
+  expect(detailsBody.invitation.role).toBe("EDITOR");
+
+  // Simulate the invited person creating their account using that email.
+  const invitee = await createAuthUser("invitee", invitedEmail);
+
+  const acceptResponse = await fetch(
+    `${apiBaseUrl}/api/invitations/${preview.token}/accept`,
+    {
+      method: "POST",
+      headers: {
+        cookie: invitee.cookie,
+        origin: FRONTEND_ORIGIN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    },
+  );
+
+  expect(acceptResponse.status).toBe(200);
+
+  const membership = await prisma.workspaceMember.findUnique({
+    where: {
+      workspaceId_userId: {
+        workspaceId,
+        userId: invitee.id,
+      },
+    },
+  });
+
+  expect(membership?.role).toBe("EDITOR");
+
+  const storedInvitation = await prisma.workspaceInvitation.findUniqueOrThrow({
+    where: { id: preview.invitation.id },
+  });
+
+  expect(storedInvitation.acceptedAt).not.toBeNull();
+
+  // A successful invitation must not be reusable.
+  const secondAccept = await fetch(
+    `${apiBaseUrl}/api/invitations/${preview.token}/accept`,
+    {
+      method: "POST",
+      headers: {
+        cookie: invitee.cookie,
+        origin: FRONTEND_ORIGIN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    },
+  );
+
+  expect(secondAccept.status).toBe(404);
+});
+
+test("an invitation cannot be accepted by a different email address", async () => {
+  const invitedEmail = `invited-mismatch-${crypto.randomUUID()}@example.test`;
+
+  const createResponse = await postInvitationForTest(owner, invitedEmail);
+
+  expect(createResponse.status).toBe(201);
+
+  const preview = await getPreviewInvitation(createResponse);
+
+  const acceptResponse = await fetch(
+    `${apiBaseUrl}/api/invitations/${preview.token}/accept`,
+    {
+      method: "POST",
+      headers: {
+        cookie: owner.cookie,
+        origin: FRONTEND_ORIGIN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    },
+  );
+
+  expect(acceptResponse.status).toBe(403);
+});
+
+test("an admin cannot invite another admin", async () => {
+  const response = await postInvitationForTest(
+    admin,
+    `invite-admin-${crypto.randomUUID()}@example.test`,
+    "ADMIN",
+  );
+
+  expect(response.status).toBe(403);
+});
+
+test("a revoked invitation link can no longer be used", async () => {
+  const createResponse = await postInvitationForTest(
+    owner,
+    `revoked-${crypto.randomUUID()}@example.test`,
+  );
+
+  expect(createResponse.status).toBe(201);
+
+  const preview = await getPreviewInvitation(createResponse);
+
+  const revokeResponse = await fetch(
+    `${apiBaseUrl}/api/workspaces/${workspaceId}/invitations/${preview.invitation.id}`,
+    {
+      method: "DELETE",
+      headers: {
+        cookie: owner.cookie,
+        origin: FRONTEND_ORIGIN,
+      },
+    },
+  );
+
+  expect(revokeResponse.status).toBe(204);
+
+  const detailsResponse = await fetch(
+    `${apiBaseUrl}/api/invitations/${preview.token}`,
+  );
+
+  expect(detailsResponse.status).toBe(404);
 });

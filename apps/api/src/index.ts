@@ -11,6 +11,7 @@ import workspaceRouter from "./routes/workspaces";
 import memberRouter from "./routes/members";
 import documentRouter from "./routes/documents";
 import collaborationRouter from "./routes/collaboration";
+import invitationRouter from "./routes/invitations";
 
 import { startCollaborationServer } from "./collaboration-server";
 
@@ -91,6 +92,7 @@ app.get("/api/me", async (req, res) => {
 
 app.use("/api/workspaces", workspaceRouter);
 app.use("/api/workspaces", memberRouter);
+app.use("/api", invitationRouter);
 app.use("/api", documentRouter);
 app.use("/api/collaboration", collaborationRouter);
 
