@@ -12,6 +12,7 @@ import memberRouter from "./routes/members";
 import documentRouter from "./routes/documents";
 import collaborationRouter from "./routes/collaboration";
 import invitationRouter from "./routes/invitations";
+import aiRouter from "./routes/ai";
 
 import { startCollaborationServer } from "./collaboration-server";
 
@@ -95,6 +96,7 @@ app.use("/api/workspaces", memberRouter);
 app.use("/api", invitationRouter);
 app.use("/api", documentRouter);
 app.use("/api/collaboration", collaborationRouter);
+app.use("/api", aiRouter);
 
 app.listen(PORT, () => {
   console.log(`API listening on port ${PORT}`);

@@ -11,6 +11,7 @@ import * as Y from "yjs";
 
 import { apiFetch } from "../lib/api";
 import VersionHistory from "./version-history";
+import AiAssistantPanel from "./ai-assistant-panel";
 
 type EditorProps = {
   documentId: string;
@@ -346,10 +347,9 @@ function CollaborativeDocumentEditor({
   const [status, setStatus] = useState("Live collaboration connected");
   const [error, setError] = useState("");
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
-  const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] =
-    useState<PersistenceAcknowledgement | null>(null);
-  const [persistenceStatus, setPersistenceStatus] =
-    useState<PersistenceStatus>("checking");
+  const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] = useState<PersistenceAcknowledgement | null>(null);
+  const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>("checking");
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
 
   const savedTitleRef = useRef("");
   const documentRevisionRef = useRef(0);
@@ -450,7 +450,7 @@ function CollaborativeDocumentEditor({
     : !persistenceAcknowledgement
       ? loadedPersistenceSnapshot
       : Date.parse(persistenceAcknowledgement.savedAt) >=
-          Date.parse(loadedPersistenceSnapshot.savedAt)
+        Date.parse(loadedPersistenceSnapshot.savedAt)
         ? persistenceAcknowledgement
         : loadedPersistenceSnapshot;
 
@@ -663,8 +663,8 @@ function CollaborativeDocumentEditor({
     case "saved":
       persistenceLabel = persistenceSnapshot
         ? `Saved to database at ${new Date(
-            persistenceSnapshot.savedAt,
-          ).toLocaleTimeString()}`
+          persistenceSnapshot.savedAt,
+        ).toLocaleTimeString()}`
         : "Saved to database";
       break;
     case "saving":
@@ -689,9 +689,8 @@ function CollaborativeDocumentEditor({
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${
-                connectionStatus === "connected" ? "bg-green-500" : "bg-red-500"
-              }`}
+              className={`inline-block h-2.5 w-2.5 rounded-full ${connectionStatus === "connected" ? "bg-green-500" : "bg-red-500"
+                }`}
               aria-hidden="true"
             />
 
@@ -819,6 +818,16 @@ function CollaborativeDocumentEditor({
               {busy ? "Please wait..." : "Save snapshot"}
             </button>
 
+            <button
+              type="button"
+              onClick={() => setShowAiAssistant((current) => !current)}
+              aria-expanded={showAiAssistant}
+              aria-controls="ai-assistant-panel"
+              className="rounded border px-3 py-1 text-sm"
+            >
+              {showAiAssistant ? "Close AI assistant" : "AI assistant"}
+            </button>
+
             <span
               role="status"
               aria-live="polite"
@@ -827,6 +836,16 @@ function CollaborativeDocumentEditor({
               {status}
             </span>
           </div>
+
+          {showAiAssistant && (
+            <div className="mb-4">
+              <AiAssistantPanel
+                documentId={documentId}
+                editor={editor}
+                canApply={canInteract}
+              />
+            </div>
+          )}
 
           {error && (
             <div role="alert" className="mb-4 rounded border p-3 text-sm">
