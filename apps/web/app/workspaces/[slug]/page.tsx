@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "../../lib/api";
 import WorkspaceInvitationsPanel from "../../components/workspace-invitations-panel";
+import WorkspaceKnowledgeAssistant from "../../components/workspace-knowledge-assistant";
+import KnowledgeIndexManager from "../../components/knowledge-index-manager";
 
 type Workspace = {
   id: string;
@@ -574,6 +576,17 @@ export default function WorkspacePage() {
           </section>
         )}
 
+        <KnowledgeIndexManager
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+          currentRole={currentRole}
+        />
+
+        <WorkspaceKnowledgeAssistant
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+        />
+
         <section className="mt-10">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -770,8 +783,7 @@ export default function WorkspacePage() {
               )}
 
               <p className="mt-4 text-xs text-muted-foreground">
-                The person must sign up before you can add their account.
-                Sending invitation emails is not implemented yet.
+                To invite new teammates, use the Workspace invitations section below.
               </p>
 
               {memberError && (

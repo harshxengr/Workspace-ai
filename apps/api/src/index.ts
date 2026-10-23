@@ -13,8 +13,9 @@ import documentRouter from "./routes/documents";
 import collaborationRouter from "./routes/collaboration";
 import invitationRouter from "./routes/invitations";
 import aiRouter from "./routes/ai";
-
 import { startCollaborationServer } from "./collaboration-server";
+import knowledgeRouter from "./routes/knowledge";
+import { startDocumentIndexingWorker } from "./lib/document-indexing-worker";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -97,10 +98,13 @@ app.use("/api", invitationRouter);
 app.use("/api", documentRouter);
 app.use("/api/collaboration", collaborationRouter);
 app.use("/api", aiRouter);
+app.use("/api", knowledgeRouter);
 
 app.listen(PORT, () => {
   console.log(`API listening on port ${PORT}`);
 });
+
+startDocumentIndexingWorker();
 
 // Local development runs both servers in one process.
 // Deployment can host the collaboration service separately.

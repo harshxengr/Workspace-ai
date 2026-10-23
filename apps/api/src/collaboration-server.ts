@@ -7,14 +7,13 @@ import crossws from "crossws/adapters/bun";
 import StarterKit from "@tiptap/starter-kit";
 import type { JSONContent } from "@tiptap/core";
 import * as Y from "yjs";
-
 import { prisma } from "@workspace/db";
 import { verifyCollaborationToken } from "@workspace/auth";
-
 import {
   canEditDocument,
   type WorkspaceRole,
 } from "./lib/document-permissions";
+import { enqueueDocumentIndexing } from "./lib/document-index-queue";
 
 const EMPTY_DOCUMENT: JSONContent = {
   type: "doc",
@@ -231,6 +230,29 @@ const collaborationServer = new Hocuspocus({
       return;
     }
 
+    // Queue indexing after document content has been persisted.
+    // Queue errors must never invalidate a successful collaborative save.
+    try {
+      const savedDocument = await prisma.document.findUnique({
+        where: { id: documentName },
+        select: {
+          id: true,
+          title: true,
+          workspaceId: true,
+          content: true,
+        },
+      });
+
+      if (savedDocument) {
+        await enqueueDocumentIndexing(savedDocument);
+      }
+    } catch (error) {
+      console.error(
+        "Could not queue document indexing:",
+        error instanceof Error ? error.message : "UNKNOWN",
+      );
+    }
+
     // Confirm persistence only after a successful database update.
     document.broadcastStateless(
       JSON.stringify({
@@ -270,10 +292,10 @@ export function closeWorkspaceMemberConnections(
         continue;
       }
 
-      connection.close();
-
-      // Also close the underlying WebSocket so the provider reconnects
-      // and authenticates again with its current workspace permissions.
+      // Close the underlying WebSocket once. Its close hook calls
+      // Hocuspocus handleClose to clean up the server-side connection.
+      // Closing both the Hocuspocus connection and socket can race with
+      // that cleanup and interfere with the client's reconnect cycle.
       connection.webSocket.close(4403, "Workspace permissions changed");
 
       closedConnections += 1;
@@ -354,12 +376,6 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 type SaveRecoverySnapshot = (content: JSONContent) => Promise<void>;
 
-/**
- * Restore a snapshot through the active Hocuspocus document.
- *
- * Connected collaborators receive the restoration through Yjs.
- * The Hocuspocus store hook persists the restored JSON and binary state.
- */
 export async function restoreCollaborativeDocument(
   documentId: string,
   restoredContent: JSONContent,
@@ -497,12 +513,6 @@ export async function restoreCollaborativeDocument(
   }
 }
 
-/**
- * Update document content through the active collaborative Yjs document.
- *
- * Both the JSON content and binary Yjs state are persisted and verified
- * by restoreCollaborativeDocument before this function returns.
- */
 export async function updateCollaborativeDocument(
   documentId: string,
   updatedContent: JSONContent,

@@ -28,6 +28,7 @@ model User {
   documents                Document[]            @relation("DocumentAuthor")
   sessions                 Session[]
   accounts                 Account[]
+aiRequestEvents          AiRequestEvent[]
   sentWorkspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitationSender")
 
   @@map("users")
@@ -44,6 +45,8 @@ model Workspace {
   members     WorkspaceMember[]
   documents   Document[]
   invitations WorkspaceInvitation[]
+  knowledgeChunks DocumentChunk[]
+  indexJobs DocumentIndexJob[]
 
   @@map("workspaces")
 }
@@ -79,6 +82,8 @@ model Document {
   workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   author    User              @relation("DocumentAuthor", fields: [authorId], references: [id])
   versions  DocumentVersion[]
+  knowledgeChunks DocumentChunk[]
+  indexJob DocumentIndexJob?
 
   @@index([workspaceId])
   @@index([authorId])
@@ -166,4 +171,56 @@ model WorkspaceInvitation {
   @@index([workspaceId, email])
   @@index([email, expiresAt])
   @@map("workspace_invitations")
+}
+
+model DocumentChunk {
+  id          String   @id @default(uuid())
+  documentId  String   @map("document_id")
+  workspaceId String   @map("workspace_id")
+  chunkIndex  Int      @map("chunk_index")
+  content     String   @db.Text
+  contentHash String   @map("content_hash")
+  embedding   Unsupported("vector")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  document  Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([workspaceId, documentId])
+  @@map("document_chunks")
+}
+
+model DocumentIndexJob {
+  id           String    @id @default(uuid())
+  documentId   String    @unique @map("document_id")
+  workspaceId  String    @map("workspace_id")
+  status       String    @default("PENDING")
+  requestedHash String   @map("requested_hash")
+  indexedHash  String?   @map("indexed_hash")
+  requestedAt  DateTime  @default(now()) @map("requested_at")
+  attemptCount Int       @default(0) @map("attempt_count")
+  lastError    String?   @map("last_error") @db.Text
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  document  Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status, requestedAt])
+  @@index([workspaceId])
+  @@map("document_index_jobs")
+}
+
+model AiRequestEvent {
+  id          BigInt   @id @default(autoincrement())
+  userId      String   @map("user_id")
+  requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, requestedAt])
+  @@index([requestedAt])
+  @@map("ai_request_events")
 }
