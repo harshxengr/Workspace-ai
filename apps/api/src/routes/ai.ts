@@ -141,7 +141,7 @@ router.post("/documents/:documentId/ai", async (req, res) => {
       });
     }
 
-    if (!allowAiRequest(session.user.id)) {
+    if (!(await allowAiRequest(session.user.id))) {
       res.setHeader("Retry-After", "60");
 
       return res.status(429).json({

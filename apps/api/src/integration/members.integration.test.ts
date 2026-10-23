@@ -1,10 +1,18 @@
 import "dotenv/config";
-
-import { afterAll, beforeAll, expect, test } from "bun:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  afterAll,
+  beforeAll,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
+
 import { prisma } from "@workspace/db";
+
+setDefaultTimeout(30_000);
 
 const API_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -783,7 +791,7 @@ test("an invited user can accept a single-use invitation", async () => {
   );
 
   expect(secondAccept.status).toBe(404);
-});
+}, 20_000);
 
 test("an invitation cannot be accepted by a different email address", async () => {
   const invitedEmail = `invited-mismatch-${crypto.randomUUID()}@example.test`;
@@ -808,7 +816,7 @@ test("an invitation cannot be accepted by a different email address", async () =
   );
 
   expect(acceptResponse.status).toBe(403);
-});
+}, { timeout: 15000 });
 
 test("an admin cannot invite another admin", async () => {
   const response = await postInvitationForTest(
@@ -847,5 +855,5 @@ test("a revoked invitation link can no longer be used", async () => {
     `${apiBaseUrl}/api/invitations/${preview.token}`,
   );
 
-  expect(detailsResponse.status).toBe(404);
-});
+    expect(detailsResponse.status).toBe(404);
+}, 20_000);

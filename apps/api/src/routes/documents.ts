@@ -1,22 +1,20 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { JSONContent } from "@tiptap/core";
-
 import { prisma } from "@workspace/db";
 import { requireAuth } from "@workspace/auth";
-
 import {
   canCreateDocument,
   canEditDocument,
   canDeleteDocument,
   type WorkspaceRole,
 } from "../lib/document-permissions";
-
 import {
   closeDocumentConnections,
   restoreCollaborativeDocument,
   updateCollaborativeDocument,
 } from "../collaboration-server";
+import { enqueueDocumentIndexing } from "../lib/document-index-queue";
 
 const router: Router = Router();
 
@@ -168,6 +166,7 @@ router.get("/documents/:documentId", async (req, res) => {
       });
     }
 
+
     const membership = await getMembership(
       document.workspaceId,
       session.user.id,
@@ -244,6 +243,8 @@ router.patch("/documents/:documentId", async (req, res) => {
       });
     }
 
+    const titleChanged = title !== undefined && title !== document.title;
+
     const membership = await getMembership(
       document.workspaceId,
       session.user.id,
@@ -273,7 +274,7 @@ router.patch("/documents/:documentId", async (req, res) => {
 
     // The title is ordinary document metadata, so it can be updated
     // directly without changing the Yjs document content.
-    if (title !== undefined) {
+    if (titleChanged) {
       await prisma.document.update({
         where: { id: document.id },
         data: { title },
@@ -298,6 +299,20 @@ router.patch("/documents/:documentId", async (req, res) => {
       return res.status(404).json({
         error: "Document not found after update",
       });
+    }
+
+    // A title change affects the embedding context even when the body text
+    // stays the same. Queue indexing only when the title actually changed.
+    // A queue failure must not turn a successful document update into a 500.
+    if (titleChanged) {
+      try {
+        await enqueueDocumentIndexing(updated);
+      } catch (queueError) {
+        console.error(
+          "Could not queue indexing after document title update:",
+          queueError instanceof Error ? queueError.message : "UNKNOWN",
+        );
+      }
     }
 
     return res.json({ document: updated });

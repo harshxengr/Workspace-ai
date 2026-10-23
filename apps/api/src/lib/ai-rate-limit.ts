@@ -1,33 +1,67 @@
-const WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 10;
+import { prisma } from "@workspace/db";
 
-const requestTimestamps = new Map<string, number[]>();
+export const AI_REQUEST_WINDOW_SECONDS = 60;
+export const AI_REQUEST_LIMIT_PER_WINDOW = 10;
 
-export function allowAiRequest(
-  userId: string,
-  now = Date.now(),
-): boolean {
-  const cutoff = now - WINDOW_MS;
+const CLEANUP_RETENTION_SECONDS = 10 * 60;
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
+const CLEANUP_BATCH_SIZE = 5_000;
 
-  const recentRequests = (requestTimestamps.get(userId) ?? [])
-    .filter((timestamp) => timestamp > cutoff);
+let lastCleanupAttemptAt = 0;
 
-  if (recentRequests.length >= MAX_REQUESTS_PER_WINDOW) {
-    requestTimestamps.set(userId, recentRequests);
-    return false;
+export function isAiRequestLimitReached(requestCount: number): boolean {
+  return requestCount >= AI_REQUEST_LIMIT_PER_WINDOW;
+}
+
+async function cleanupExpiredRequests(): Promise<void> {
+  const now = Date.now();
+
+  if (now - lastCleanupAttemptAt < CLEANUP_INTERVAL_MS) {
+    return;
   }
 
-  recentRequests.push(now);
-  requestTimestamps.set(userId, recentRequests);
+  // Set this before the query so concurrent requests do not all
+  // start the same cleanup operation.
+  lastCleanupAttemptAt = now;
 
-  // Avoid retaining an unlimited number of inactive user entries.
-  if (requestTimestamps.size > 5_000) {
-    for (const [key, timestamps] of requestTimestamps) {
-      if (!timestamps.some((timestamp) => timestamp > cutoff)) {
-        requestTimestamps.delete(key);
-      }
-    }
+  try {
+    await prisma.$executeRaw`
+      WITH expired AS (
+        SELECT "id"
+        FROM "ai_request_events"
+        WHERE "requested_at" <
+          clock_timestamp() -
+          (${CLEANUP_RETENTION_SECONDS} * INTERVAL '1 second')
+        ORDER BY "requested_at" ASC
+        LIMIT ${CLEANUP_BATCH_SIZE}
+      )
+      DELETE FROM "ai_request_events" AS events
+      USING expired
+      WHERE events."id" = expired."id"
+    `;
+  } catch (error) {
+    // Cleanup is best-effort. A cleanup failure must not silently
+    // change the rate-limit decision or reject an otherwise valid request.
+    console.warn("Failed to clean up expired AI request events.", error);
+  }
+}
+
+export async function allowAiRequest(userId: string): Promise<boolean> {
+  const normalizedUserId = userId.trim();
+
+  if (!normalizedUserId) {
+    throw new TypeError("A user ID is required to check the AI rate limit.");
   }
 
-  return true;
+  await cleanupExpiredRequests();
+
+  const rows = await prisma.$queryRaw<Array<{ allowed: boolean }>>`
+    SELECT public.allow_ai_request(
+      ${normalizedUserId},
+      ${AI_REQUEST_WINDOW_SECONDS},
+      ${AI_REQUEST_LIMIT_PER_WINDOW}
+    ) AS "allowed"
+  `;
+
+  return rows[0]?.allowed === true;
 }
