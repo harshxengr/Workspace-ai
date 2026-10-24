@@ -1,374 +1,272 @@
-# WorkspaceAI
+# Workspace AI
 
-WorkspaceAI is a collaborative workspace and document editor built with Next.js, Bun, Express, PostgreSQL, Prisma, Tiptap, Yjs, and Hocuspocus.
+**An AI-powered collaborative workspace for teams to organize documents, collaborate, and find information using natural language.**
 
-It provides a foundation for teams to organize documents, collaborate in real time, manage workspace access, and restore earlier document versions.
+Workspace AI combines workspace management, collaborative document editing, and AI-powered knowledge retrieval in one application. Team members can work together on documents and use the Knowledge Assistant to ask questions about indexed workspace content.
 
 ## Features
 
-- **Authentication:** Email and password registration and sign-in using Better Auth.
-- **Workspaces:** Create and organize workspaces, with workspace membership.
-- **Role-based access control:** Support for OWNER, ADMIN, EDITOR, MEMBER, and VIEWER roles.
-- **Document management:** Create, list, rename, retrieve, update, and delete documents, subject to permissions.
-- **Rich-text editing:** Edit documents with Tiptap and its formatting extensions.
-- **Real-time collaboration:** Synchronize document changes through Yjs and Hocuspocus.
-- **Collaborator awareness:** Display live collaborator cursors and identity colors.
-- **Document persistence:** Store Tiptap JSON and binary Yjs state in PostgreSQL.
-- **Save feedback:** Display save status based on persistence confirmations and content comparison.
-- **Version history:** Create manual snapshots and restore an earlier version.
-- **Automated testing:** Unit and integration tests for permissions, collaboration, reconnect recovery, persistence, and restoration.
-- **Continuous integration:** GitHub Actions runs database migrations, tests, type checks, linting, and builds.
+### Workspace Management
+- Create and manage workspaces.
+- Organize team members within workspaces.
+- Support role-based access control.
+- Manage workspace membership and permissions.
 
-## Technology stack
+### Collaborative Documents
+- Create and manage workspace documents.
+- Edit documents in a collaborative environment.
+- Keep document access scoped to the appropriate workspace.
+- Organize knowledge around shared documents.
 
-| Area                         | Technology                 |
-| ---------------------------- | -------------------------- |
-| Frontend                     | Next.js, React, TypeScript |
-| Styling                      | Tailwind CSS               |
-| Rich-text editor             | Tiptap                     |
-| Collaborative document model | Yjs                        |
-| Collaboration server         | Hocuspocus                 |
-| Backend API                  | Bun, Express               |
-| Authentication               | Better Auth                |
-| Database                     | PostgreSQL                 |
-| ORM and migrations           | Prisma                     |
-| Validation                   | Zod                        |
-| Monorepo                     | Bun workspaces, Turborepo  |
-| CI                           | GitHub Actions             |
+### AI Knowledge Assistant
+- Ask natural-language questions about indexed workspace documents.
+- Split document content into smaller chunks for retrieval.
+- Generate embeddings using Google's Gemini embedding model.
+- Store document embeddings in PostgreSQL with pgvector.
+- Retrieve relevant document chunks to support answers.
+- Manage document indexing through a dedicated interface.
+- Process indexing jobs and track their status.
 
-## Architecture
+### AI Request Protection
+- Apply AI request rate limiting.
+- Track request events for rate-limit enforcement.
+- Protect AI endpoints against excessive requests.
 
-```text
-Browser
-  |
-  | HTTP / REST
-  v
-Next.js Web Application (:3000)
-  |
-  | Authenticated API requests
-  v
-Bun + Express API (:4000)
-  |
-  +---- Better Auth
-  |
-  +---- Workspace, membership, and document routes
-  |
-  +---- Collaboration token endpoint
-  |
-  +---- Hocuspocus WebSocket server (:1234)
-              |
-              +---- Yjs document synchronization
-              |
-              +---- PostgreSQL persistence
+## Tech Stack
 
-PostgreSQL
-  |
-  +---- Users and sessions
-  +---- Workspaces and memberships
-  +---- Documents and binary collaboration state
-  +---- Document version snapshots
-```
+| Category | Technology |
+|---|---|
+| Frontend | Next.js, React, TypeScript |
+| Styling | Tailwind CSS, shadcn/ui |
+| Backend | TypeScript, Bun |
+| Database | PostgreSQL |
+| ORM | Prisma |
+| Vector Search | pgvector |
+| AI Embeddings | Gemini API |
+| Authentication | Better Auth |
+| Package Management | Bun |
 
-The web application makes HTTP requests to the API and connects to the collaboration server over WebSockets.
+The stack reflects the technologies used in the project. Individual integrations and configuration requirements may vary by environment.
 
-The API authenticates users and checks workspace membership and permissions. Collaboration connections use short-lived, document-specific tokens. The collaboration server synchronizes Yjs changes and persists document content and binary collaboration state.
+## Architecture Overview
 
-### Repository structure
+At a high level, the application follows this workflow:
+
+1. Users authenticate and access their workspace.
+2. Workspace members create or update documents.
+3. Documents are submitted for indexing.
+4. The indexing process extracts document text and splits it into chunks.
+5. Gemini generates embeddings for the chunks.
+6. The embeddings and associated content are stored in PostgreSQL using pgvector.
+7. When a user asks a question, the application retrieves relevant indexed content.
+8. The retrieved context is used to support the AI response.
 
 ```text
-Workspace-ai/
-├── apps/
-│   ├── api/
-│   │   └── src/
-│   │       ├── routes/
-│   │       ├── lib/
-│   │       ├── integration/
-│   │       ├── collaboration-server.ts
-│   │       └── index.ts
-│   └── web/
-│       └── app/
-│           ├── components/
-│           ├── dashboard/
-│           ├── login/
-│           ├── signup/
-│           ├── workspaces/
-│           └── lib/
-├── packages/
-│   ├── auth/
-│   ├── db/
-│   │   └── prisma/
-│   ├── eslint-config/
-│   ├── typescript-config/
-│   └── ui/
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-├── package.json
-├── bun.lock
-└── turbo.json
+User
+ |
+ v
+Next.js Web Application
+ |
+ v
+Backend API
+ |
+ +---- Authentication and Permissions
+ |
+ +---- Workspace and Document Management
+ |
+ +---- Knowledge Assistant
+          |
+          +---- Document Chunking
+          |
+          +---- Gemini Embeddings
+          |
+          +---- PostgreSQL + pgvector
+          |
+          +---- Relevant Context Retrieval
+          |
+          v
+       AI Response
 ```
 
-## Prerequisites
+## Getting Started
 
-Install the following tools before starting development:
+### Prerequisites
 
-- [Bun](https://bun.sh/) — use version `1.3.4`, matching the CI configuration.
-- [Node.js](https://nodejs.org/) — version 24 or newer, matching the repository's declared engine.
-- [PostgreSQL](https://www.postgresql.org/) — a running database.
-- [Docker](https://www.docker.com/) — optional, if you prefer to run PostgreSQL in a container.
+Install or configure the following:
 
-## Local development setup
+- Git
+- Bun (use the version specified by the repository)
+- PostgreSQL with pgvector support
+- A Google Gemini API key
+- Node.js if required by your installed tools or deployment environment
 
-### 1. Clone the repository
+You will also need access to a PostgreSQL database for local development.
+
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/harshxengr/Workspace-ai.git
 cd Workspace-ai
 ```
 
-### 2. Install dependencies
+### 2. Install Dependencies
 
 ```bash
 bun install
 ```
 
-### 3. Start PostgreSQL
+### 3. Configure Environment Variables
 
-If you already have a PostgreSQL server and database available, use those and skip this step.
+Create the environment files required by the applications and packages in the repository.
 
-Otherwise, start a local PostgreSQL 16 container:
+Example variables may include:
+
+```env
+DATABASE_URL="your-postgresql-connection-string"
+GEMINI_API_KEY="your-gemini-api-key"
+```
+
+Configure any additional authentication, application URL, and service variables required by your existing code.
+
+**Important:** Environment variable names must match the names referenced by your implementation. Check the existing environment examples and configuration files before adding or renaming variables. Never commit real API keys, database credentials, or secrets.
+
+### 4. Configure the Database
+
+Ensure your PostgreSQL database supports pgvector.
+
+Apply the Prisma migrations using the database package and commands configured in the repository. For example, if the root scripts expose the relevant Prisma commands:
 
 ```bash
-docker run \
-  --name workspace-ai-postgres \
-  --restart unless-stopped \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=workspace_ai \
-  -p 5432:5432 \
-  -v workspace-ai-postgres-data:/var/lib/postgresql/data \
-  -d postgres:16
+bun run db:generate
+bun run db:migrate
 ```
 
-This creates a development database named `workspace_ai`. The example credentials are for local development only; use secure credentials for any deployed environment.
+These are illustrative commands; use the actual scripts defined in your `package.json` files. For a deployed database, follow your project's production migration workflow rather than running development migrations blindly.
 
-### 4. Configure the API environment
+### 5. Start the Application
 
-Copy the API environment example:
-
-```bash
-cp apps/api/.env.example apps/api/.env
-```
-
-Set the values in `apps/api/.env`:
-
-```dotenv
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/workspace_ai?schema=public"
-BETTER_AUTH_URL="http://localhost:4000"
-BETTER_AUTH_SECRET="replace-with-a-long-random-secret"
-PORT=4000
-COLLAB_PORT=1234
-```
-
-Generate a random secret with:
-
-```bash
-openssl rand -base64 32
-```
-
-Use the generated value for `BETTER_AUTH_SECRET`.
-
-### 5. Configure the database environment
-
-Prisma commands run from the database package, so place the database connection settings where the Prisma configuration can load them:
-
-```bash
-cp apps/api/.env packages/db/.env
-```
-
-The `DATABASE_URL` in both files must point to the same PostgreSQL database.
-
-### 6. Configure the web application
-
-Create `apps/web/.env.local` with the following local development settings:
-
-```dotenv
-NEXT_PUBLIC_API_URL="http://localhost:4000"
-NEXT_PUBLIC_COLLAB_URL="ws://localhost:1234"
-```
-
-These values tell the frontend where to send API requests and where to connect for real-time collaboration.
-
-### 7. Generate the Prisma client and apply migrations
-
-From the repository root, run:
-
-```bash
-bun --cwd packages/db generate
-bun --cwd packages/db run migrate:deploy
-```
-
-The first command generates the Prisma client. The second applies the existing database migrations.
-
-For local schema development that requires creating a new migration, use:
-
-```bash
-bun --cwd packages/db run migrate
-```
-
-Review generated migrations before committing them.
-
-### 8. Start the application
-
-Start the web app and API through Turborepo:
+Use the root development script if your repository defines one:
 
 ```bash
 bun run dev
 ```
 
-The expected local endpoints are:
+If the monorepo requires separate frontend and backend processes, start them using the scripts defined in their respective package directories.
 
-| Service                 | URL                             |
-| ----------------------- | ------------------------------- |
-| Web application         | http://localhost:3000           |
-| REST API                | http://localhost:4000           |
-| Collaboration WebSocket | ws://localhost:1234             |
-| API health check        | http://localhost:4000/health    |
-| Database health check   | http://localhost:4000/health/db |
+Open the local application URL printed in your terminal.
 
-The API process also starts the collaboration server.
+## Environment Configuration
 
-Open the web application, create an account, sign in, and create a workspace to begin testing the application.
+The following table lists common configuration requirements. Confirm the exact variable names in the source code before using them.
 
-## Workspace roles and permissions
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection |
+| `GEMINI_API_KEY` | Gemini API access for embeddings and any configured AI operations |
+| Authentication secrets and URLs | Secure authentication and callback configuration |
+| Application URL variables | Frontend and backend origin configuration |
 
-WorkspaceAI defines these roles:
+Keep local environment files out of version control. Use your hosting provider's secret-management settings for production credentials.
 
-| Role   | Intended access                                        |
-| ------ | ------------------------------------------------------ |
-| OWNER  | Workspace ownership and administrative access          |
-| ADMIN  | Administrative workspace access                        |
-| EDITOR | Create and edit documents                              |
-| MEMBER | Workspace membership without document-edit permissions |
-| VIEWER | Read-only document access                              |
+## Document Indexing
 
-Document creation, editing, deletion, membership management, and version restoration are enforced by backend permission checks. Refer to `apps/api/src/lib/document-permissions.ts` for the actual permission rules.
+The Knowledge Assistant depends on indexed documents.
 
-## How collaboration works
+The indexing process generally involves:
 
-The collaborative editor uses Tiptap for rich-text editing and Yjs for shared document state. Hocuspocus transports collaboration updates between connected clients.
+1. Extracting supported document content.
+2. Normalizing and splitting the content into chunks.
+3. Generating embeddings for each chunk.
+4. Persisting chunks and embeddings.
+5. Updating the indexing job status.
 
-The collaboration flow is:
+Documents must be indexed successfully before their content can be retrieved through the Knowledge Assistant. Indexing availability depends on the document types and processing paths implemented in the application.
 
-1. The authenticated web application requests a document-specific collaboration token.
-2. The API checks the user's access to the document's workspace.
-3. The client connects to Hocuspocus using the document ID and token.
-4. Yjs synchronizes changes between authorized clients.
-5. The collaboration server persists the document's Tiptap JSON and binary Yjs state in PostgreSQL.
-6. The frontend uses save acknowledgements to help determine whether the current content matches a persisted snapshot.
+## Security Considerations
 
-Manual version snapshots are separate from the live collaboration state. The version history feature can restore a saved snapshot through the active collaborative document.
+- Enforce workspace membership and document permissions on the backend.
+- Validate user input at API boundaries.
+- Keep API keys and database credentials in environment variables.
+- Apply appropriate rate limits to AI endpoints.
+- Avoid exposing private workspace content across authorization boundaries.
+- Use secure authentication and session configuration.
+- Apply database migrations carefully in production.
+- Review logging practices to avoid recording sensitive document content or credentials.
 
-## API overview
+## Development
 
-The REST API is served by Express at the configured API URL.
-
-### Health and authentication
-
-| Method | Endpoint      | Purpose                              |
-| ------ | ------------- | ------------------------------------ |
-| GET    | `/health`     | Check API availability               |
-| GET    | `/health/db`  | Check database connectivity          |
-| GET    | `/api/me`     | Retrieve the authenticated user      |
-| `/`    | `/api/auth/*` | Better Auth authentication endpoints |
-
-### Workspaces and members
-
-| Method | Endpoint                               | Purpose                            |
-| ------ | -------------------------------------- | ---------------------------------- |
-| POST   | `/api/workspaces`                      | Create a workspace                 |
-| GET    | `/api/workspaces`                      | List the current user's workspaces |
-| POST   | `/api/workspaces/:workspaceId/members` | Add a workspace member             |
-| GET    | `/api/workspaces/:workspaceId/members` | List workspace members             |
-
-### Documents and collaboration
-
-| Method | Endpoint                                                 | Purpose                                             |
-| ------ | -------------------------------------------------------- | --------------------------------------------------- |
-| POST   | `/api/workspaces/:workspaceId/documents`                 | Create a document                                   |
-| GET    | `/api/workspaces/:workspaceId/documents`                 | List workspace documents                            |
-| GET    | `/api/documents/:documentId`                             | Retrieve a document                                 |
-| PATCH  | `/api/documents/:documentId`                             | Update document fields or create a version snapshot |
-| DELETE | `/api/documents/:documentId`                             | Delete a document                                   |
-| GET    | `/api/documents/:documentId/versions`                    | List document versions                              |
-| POST   | `/api/documents/:documentId/versions/:versionId/restore` | Restore a document version                          |
-| GET    | `/api/collaboration/documents/:documentId/token`         | Request a collaboration token                       |
-
-Authenticated routes require a valid user session. Workspace membership and role permissions are checked by the relevant API handlers.
-
-## Testing and code quality
-
-Run the API unit tests:
+Run the checks configured by the repository:
 
 ```bash
-bun --cwd apps/api test
-```
-
-Run the collaboration integration tests:
-
-```bash
-bun --cwd apps/api run test:integration
-```
-
-The integration tests require a reachable test PostgreSQL database and the required environment variables. They exercise real collaboration-server behavior and database persistence.
-
-Run repository-wide checks:
-
-```bash
-bun run check-types
 bun run lint
+bun run check-types
 bun run build
 ```
 
-The CI workflow in `.github/workflows/ci.yml` provisions PostgreSQL, installs dependencies, generates Prisma client code, applies migrations, and executes the test, type-check, lint, and build steps.
+Run these commands from the repository root when the corresponding scripts are defined there.
 
-## Environment variable reference
+If automated tests are present, execute the relevant test scripts before merging changes. Verify the exact test command in the project's package scripts.
 
-| Variable                 | Used by                                 | Purpose                                                        |
-| ------------------------ | --------------------------------------- | -------------------------------------------------------------- |
-| `DATABASE_URL`           | API and database package                | PostgreSQL connection string                                   |
-| `BETTER_AUTH_URL`        | API authentication                      | Base URL for Better Auth                                       |
-| `BETTER_AUTH_SECRET`     | Authentication and collaboration tokens | Signing secret                                                 |
-| `PORT`                   | API                                     | HTTP port; defaults to `4000`                                  |
-| `COLLAB_PORT`            | Collaboration server                    | WebSocket port; defaults to `1234`                             |
-| `NEXT_PUBLIC_API_URL`    | Web application                         | API base URL; defaults to `http://localhost:4000`              |
-| `NEXT_PUBLIC_COLLAB_URL` | Web application                         | Collaboration WebSocket URL; defaults to `ws://localhost:1234` |
+## Deployment
 
-Never commit local environment files, credentials, session tokens, or production secrets. Variables prefixed with `NEXT_PUBLIC_` are exposed to browser code and must not contain secrets.
+Before deploying a new version:
 
-## Deployment and security considerations
+1. Configure all required production environment variables.
+2. Provision PostgreSQL with pgvector support.
+3. Apply the required database migrations.
+4. Configure the Gemini API key and review API usage limits.
+5. Deploy the frontend and backend using the hosting configuration supported by the repository.
+6. Verify authentication, workspace permissions, document indexing, and AI question answering.
+7. Check application logs and indexing job failures after deployment.
 
-The repository currently provides a development setup and CI validation workflow; these do not, by themselves, constitute a complete production deployment configuration.
+The frontend, backend, and database may require separate deployment configuration depending on the hosting providers used.
 
-Before deploying publicly:
+## Project Structure
 
-- Configure secure production PostgreSQL credentials and run migrations as part of release operations.
-- Configure the correct production API URL, web origin, and collaboration WebSocket URL.
-- Update the API's CORS configuration and Better Auth trusted origins for the intended deployment domains.
-- Review the current Better Auth origin-check configuration and enable appropriate production protections.
-- Use HTTPS and secure WebSocket transport (`wss://`) in production.
-- Keep secrets in the deployment platform's secret manager, not in source control or public frontend variables.
-- Configure database backups, monitoring, error reporting, and recovery procedures.
-- Test authentication, workspace authorization, document permissions, collaborative persistence, reconnection, and version restoration in the deployed environment.
+The project uses a monorepo layout. The main application areas include:
+
+```text
+Workspace-ai/
+├── apps/
+│   ├── api/          # Backend API and application services
+│   └── web/          # Next.js frontend
+├── packages/
+│   └── db/           # Prisma schema and database migrations
+├── package.json      # Root scripts and workspace configuration
+└── README.md
+```
+
+Other configuration and shared packages may exist in the repository.
+
+## Current Scope
+
+Workspace AI brings together collaborative workspaces, document management, and AI-assisted knowledge retrieval.
+
+Its Knowledge Assistant uses document indexing and vector-based retrieval to help users find information across workspace documents.
+
+## Future Improvements
+
+Potential areas for further development include:
+
+- More document formats and extraction strategies.
+- Improved retrieval quality and relevance evaluation.
+- Better indexing failure recovery and observability.
+- Expanded automated integration and end-to-end coverage.
+- Additional collaboration and workspace productivity features.
 
 ## Contributing
 
-1. Create a feature branch from `main`.
-2. Make a focused change and add or update tests where appropriate.
-3. Run the relevant tests, type checks, lint, and build.
-4. Open a pull request targeting `main`.
-5. Review the CI results before merging.
+Contributions and suggestions are welcome.
+
+1. Create a feature branch.
+2. Make focused, maintainable changes.
+3. Run the applicable lint, type-check, build, and test commands.
+4. Open a pull request with a clear summary of the changes.
 
 ## License
 
-No license has been specified in this repository yet. Until one is added, do not assume the code is available for unrestricted reuse.
+No license has been specified here. Add a `LICENSE` file and update this section before presenting the project as open source.
+
+---
+
+**Workspace AI** — collaborative workspaces with AI-powered knowledge retrieval.
