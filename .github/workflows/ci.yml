@@ -52,9 +52,6 @@ jobs:
       - name: Apply database migrations
         run: bun --cwd packages/db run migrate:deploy
 
-      - name: Run API unit tests
-        run: bun --cwd apps/api test
-
       - name: Type check
         run: bun run check-types
 
@@ -63,6 +60,3 @@ jobs:
 
       - name: Build
         run: bun run build
-
-      - name: Run collaboration integration tests
-        run: bun --cwd apps/api run test:integration

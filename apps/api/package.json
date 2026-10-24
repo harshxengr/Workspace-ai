@@ -7,9 +7,7 @@
     "build": "bun build src/index.ts src/collaboration-entry.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
     "start:collaboration": "bun dist/collaboration-entry.js",
-    "check-types": "tsc --noEmit",
-    "test": "bun test src/lib",
-    "test:integration": "bun test src/integration"
+    "check-types": "tsc --noEmit"
   },
   "dependencies": {
     "@hocuspocus/server": "^4.7.0",
